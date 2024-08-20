@@ -8,8 +8,10 @@ REFACTOR TODO
 
 import logging
 import re
+import time
+import os
 
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple, Generator
 from pygbif.species import name_backbone
 from pygbif import occurrences as occ
 from pygbif import maps
@@ -19,6 +21,8 @@ from sqlite.Bitvector import BitIndex, ChecksManager
 
 logger = logging.getLogger(__name__)
 
+GBIF_LOC_PARA_LIMIT = 1
+GBIF_LOC_QUERY_LIMIT = 101000
 SCORE_BOARD = {'kingdom':       {'EXACT': 1, 'HIGHERRANK': 100,
                                  'FUZZY': 0, 'NONE': -100},
                'phylum':        {'EXACT': 1, 'HIGHERRANK': 100,
@@ -296,6 +300,43 @@ def name_backbone_stat(query: str, rank: str='species') -> Tuple[str, str, str, 
     return (query, result, match_type, status, confidence, synonym)
 
 
+# ToDo: This should yield results so all other logic can be implemented in 
+def get_locations(keys: List[int], batch_size: int) -> Generator[str, Any, Any]:
+    """ Creates large download object for occurrences """
+
+    query_size = max(batch_size, GBIF_LOC_QUERY_LIMIT)
+    # Note:
+    # GBIF displays public information for all downloads.
+    # Avoid using a real account for this!
+    # We need to limit the number of open downloads to a single one
+    # here as we need to stay in GBIF limits
+    # Information can be found here: https://techdocs.gbif.org/en/openapi/v1/occurrence#/
+    file_path = "."
+    for i in range(0,len(keys), query_size):
+        logger.info("Starting download number %s", i)
+        batch = keys[i:i+query_size]
+        batch = [f"\"{key}\"" for key in batch]
+        key_str = f"taxonKey in [{', '.join(key for key in batch)}]"
+        a = occ.download([key_str, "hasCoordinate = TRUE"])
+        req_id = a[0]
+
+        #ToDo: Good Implementation.
+        # This is just a first draft to see if thinks work out as expected.
+        meta = occ.download_meta(req_id)
+        while meta["status"] != "SUCCEEDED":
+            logger.info("Still not ready. Metainfo:\n%s", meta['status'])
+            time.sleep(180)
+            meta = occ.download_meta(req_id)
+
+        # The time has come to download the file. 
+        logging.info("Starting download for request: %s", req_id)
+        occ.download_get(req_id, file_path)
+        yield os.path.join(file_path, f"{req_id}.zip")
+
+    # This part should be implemented as an asyn procedure to make sure we do
+    # not wait for any loger data...
+
+
 def query_location(gbif_key: int) -> Any:
     """ Queries GBIF for geo data 
 
@@ -307,10 +348,10 @@ def query_location(gbif_key: int) -> Any:
         Returns:
             Geo location of taxa or something similiar.
     """
-    a = occ.download(f"taxonKey={gbif_key}")
+    a = occ.download([f"taxonKey = {gbif_key}", "hasCoordinate = TRUE"])
     print(a)
-    res = occ.search(taxonKey=gbif_key, limit=300, )
-    print(res)
+    #res = occ.search(taxonKey=gbif_key, limit=300, )
+    #print(res)
 
 def get_map(gbif_key: int) -> None:
     """Plots map of provided gbif_key"""

@@ -5,6 +5,7 @@ import sqlite3
 from typing import Any, Tuple, Dict, Set, List
 from enum import Enum
 from collections import defaultdict
+from multiprocessing import Process
 
 from common.helper import file_exist
 from sqlite.builder import open_db_file, create_database, create_db_file, execute_batches
@@ -12,6 +13,7 @@ from sqlite.parser import DB_MAP
 from sqlite.Bitvector import BitIndex
 from tools.harmonizer import harmonize, harmonize_b2t
 from tools.sanitizer import purge_duplicates, disclose_hybrids
+from tools.tracker import validate_location
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +154,10 @@ class EyeBoldDatabase():
 
         # 3. Download GBIF data
         logging.info("Collecting geo information from GBIF. This might take some time...")
+        tracker_process = Process(target=validate_location,
+                                  args=(self._db_file, 101000))
+        tracker_process.start()
+
 
         # 4. Check ORF in Sequences
 
@@ -168,6 +174,8 @@ class EyeBoldDatabase():
         command = """SELECT * FROM specimen WHERE checks & 1 = 1;"""
         cursor.execute(command)
         result = cursor.fetchall()
+        # Wait for the tracker_process to finish
+        tracker_process.join()
 
     def close(self) -> None:
 

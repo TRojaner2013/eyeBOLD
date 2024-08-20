@@ -35,9 +35,12 @@ class CreateCommands(StrEnum):
                     );'''
 
     # Information regarding GBIF_INFO Table
+    # Create Index on GBIF_KEY
     GBIF_INFO_CMD = '''CREATE TABLE IF NOT EXISTS gbif_info (
-                    gbif_key INTEGER PRIMARY KEY NOT NULL,
-                    gbif_info JSON
+                    gbif_id PRIMARY KEY NOT NULL,
+                    gbif_key INTEGER NOT NULL,
+                    long FLOAT NOT NULL,
+                    latt FLOAT NOT NULL
                     );'''
 
     # Mock commands for testing purposes...
