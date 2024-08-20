@@ -9,8 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from gbif.gbif import query_name_backbone, name_backbone_stat, query_name_backbone_b2t
 from sqlite.parser import GbifName
 
-WORKER_THREADS = 50
-
+WORKER_THREADS = 20
 
 def _harmonize_names(taxon_data: set, rank: str) -> List[GbifName]:
     """Checks naming of taxons and returns matches as dictionary"""
@@ -42,8 +41,6 @@ def _harmonize_names_b2t(taxon_data: List[Dict]) -> List[GbifName]:
         for future in as_completed(future_to_query):
             #query = future_to_query[future]
             result.append(future.result())
-
-
 
     return result
 
