@@ -4,4 +4,5 @@
 	branch = main
 [submodule "pygbif"]
 	path = my_pygbif
-	url = https://github.com/gbif/pygbif.git
+	url = https://github.com/TRojaner2013/pygbif.git
+	branch = eyeBOLD
