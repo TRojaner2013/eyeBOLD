@@ -304,7 +304,7 @@ def name_backbone_stat(query: str, rank: str='species') -> Tuple[str, str, str, 
 def get_locations(keys: List[int], batch_size: int) -> Generator[str, Any, Any]:
     """ Creates large download object for occurrences """
 
-    query_size = max(batch_size, GBIF_LOC_QUERY_LIMIT)
+    query_size = min(batch_size, GBIF_LOC_QUERY_LIMIT)
     # Note:
     # GBIF displays public information for all downloads.
     # Avoid using a real account for this!
@@ -317,7 +317,9 @@ def get_locations(keys: List[int], batch_size: int) -> Generator[str, Any, Any]:
         batch = keys[i:i+query_size]
         batch = [f"\"{key}\"" for key in batch]
         key_str = f"taxonKey in [{', '.join(key for key in batch)}]"
-        a = occ.download([key_str, "hasCoordinate = TRUE"])
+        # We can mock pygbif by providign False to email in order to skip email
+        # notifications.
+        a = occ.download([key_str, "hasCoordinate = TRUE"], email=False)
         req_id = a[0]
 
         #ToDo: Good Implementation.
