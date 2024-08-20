@@ -2,3 +2,6 @@
 	path = raxtax
 	url = https://github.com/noahares/raxtax.git
 	branch = main
+[submodule "pygbif"]
+	path = my_pygbif
+	url = https://github.com/gbif/pygbif.git
