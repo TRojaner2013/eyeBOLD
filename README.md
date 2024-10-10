@@ -22,3 +22,7 @@ To mitigate these risks, we strongly recommend using a dedicated GBIF account sp
 
 * **Create a Shared/Public Account:** If you don't require access to sensitive data, consider using a shared or public GBIF account that doesn't store any personal information or relevant datasets.
 * **Use Dummy Credentials:** Alternatively, if a dedicated account is needed but sensitive data isn't involved, create a dummy account with non-functional credentials solely for authentication purposes.
+
+# Updating Submodules
+Updating submodules to new commits/versions implies that proper actions are taken that changes are reflected in this project.
+This includes creating new binaries for RaxTax and updating the packages with manuall installation in pip.
