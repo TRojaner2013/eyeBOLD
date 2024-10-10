@@ -6,3 +6,7 @@
 	path = my_pygbif
 	url = https://github.com/TRojaner2013/pygbif.git
 	branch = eyeBOLD
+[submodule "kgcpy"]
+	path = my_kgcpy
+	url = https://github.com/TRojaner2013/kgcpy.git
+	branch = vec_impl
