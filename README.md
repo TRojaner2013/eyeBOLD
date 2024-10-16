@@ -9,8 +9,17 @@
 - Install rust compiler (cargo)
 - Run setup_tools script to build raxtax
 - DISKSPACE!! (We are talking about a looooot like idk 200 - 300 GB)
+- Time (
 
 # Usage
+
+# Building the database
+
+The first step is to build the database with data provided by BOLD and GBIF.
+Figure x illustrates the process.
+Some parts are implemented in a sequential order, other parts are executed in parallel.
+
+Espacially downloading the geo data from GBIF is time consuming. The process will take around one or two days depending on your internet connetion.
 
 # A word about GBIF
 
