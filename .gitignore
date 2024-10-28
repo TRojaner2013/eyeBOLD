@@ -156,3 +156,12 @@ cython_debug/
 
 # Ignore RAxTax binary
 *.exe
+
+# Ignore input and output files
+*.zip
+*.tsv
+*.csv
+*.fasta
+
+# Ignore database files
+*.db
