@@ -5,6 +5,8 @@
 import csv
 import json
 import logging
+import copy
+import kgcpy
 
 import hashlib
 
@@ -37,11 +39,13 @@ class GbifName:
     insert_dict: dict
     specimenids: List[int]
 
-    def to_sql_command(self) -> Tuple[str, List[str]]:
+    def to_sql_command(self) -> List[Tuple[str, int]]:#Tuple[str, List[str]]:
         """Returns SQL update command for instance"""
         update_columns = []
         parameters = []
         checks_value = None
+        max_varialbe_count = 950 # Make sure to keep this below 999 to account for update_columns andn not just specimenids
+        commands = []
 
         for column, value in self.insert_dict.items():
             if column == "checks":
@@ -55,18 +59,27 @@ class GbifName:
             parameters.append(checks_value)
 
         if not update_columns:
-            return "", parameters
+            # These are failed GBIF queries
+            # ToDo -- HIGH PRIORITY:
+            #   Set flag in database!
+            commands.append(("", []))
+            return commands
 
-        placeholders = ', '.join(['?'] * len(self.specimenids))
+        common_parameters = copy.deepcopy(parameters)
+        for i in range(0, len(self.specimenids), max_varialbe_count):
+            batch = self.specimenids[i:i + max_varialbe_count]
+            placeholders = ', '.join(['?'] * len(batch))
+            command = f"""
+                UPDATE specimen
+                SET {', '.join(update_columns)}
+                WHERE specimenid IN ({placeholders});
+            """
+            parameters.extend(batch)
+            assert command.count('?') == len(parameters)
+            commands.append((command, parameters))
+            parameters = copy.deepcopy(common_parameters)  # Reset parameters for the next batch
 
-        command = f"""
-            UPDATE specimen
-            SET {', '.join(update_columns)}
-            WHERE specimenid IN ({placeholders});
-        """
-        parameters.extend(self.specimenids)
-
-        return command, parameters
+        return commands
 
 DB_MAP = {
     'processid': 'processid',
@@ -201,6 +214,32 @@ TAXONOMY_MAP = {
     'genus':        'taxon_genus',
     'species':      'taxon_species',
     'subspecies':   'taxon_subspecies'
+}
+
+TAXONOMY_TO_INT = {
+    'kingdom':       1,
+    'phylum':        2,
+    'class':         3,
+    'order':         4,
+    'family':        5,
+    'subfamily':     6,
+    'tribe':         7,
+    'genus':         8,
+    'species':       9,
+    'subspecies':   10
+}
+
+INT_TO_TAXONOMY = {
+    1:   'kingdom',
+    2:   'phylum',
+    3:   'class',
+    4:   'order',
+    5:   'family',
+    6:   'subfamily',
+    7:   'tribe',
+    8:   'genus',
+    9:   'species',
+    10:  'subspecies'
 }
 
 REV_AXONOMY_MAP = {
@@ -338,6 +377,7 @@ class TsvParser():
 
     @staticmethod
     def _null_data(row: str, value: str) -> bool:
+        """ Returns True if a mandatory field is NULL """
         if NOT_NULL_MAP.get(row, False):
             return value is None
 
@@ -349,13 +389,6 @@ class TsvParser():
             return None
 
         return pars_func(value)
-        # try:
-        #     changed_value = pars_func(value)
-        # except:
-        #     # Catch errors and return NULL
-        #     raise
-        # finally:
-        #     return changed_value
 
     def __iter__(self) -> 'TsvParser':
         return self
@@ -369,6 +402,8 @@ class TsvParser():
             Dict[str, str]: The next row as a dictionary if the marker matches.
         """
 
+        # This are the columns we need to just copy to the new table
+        # If you need to add more collums, add them here.
         column_names = [
             "taxon_rank",
             "taxon_kingdom",
@@ -382,7 +417,8 @@ class TsvParser():
             "taxon_species",
             "taxon_subspecies",
             "identification_rank",
-            "specimenid"
+            "specimenid",
+            "country_iso"
         ]
 
         for row in self._tsv_reader:
@@ -390,6 +426,9 @@ class TsvParser():
             if marker is not None and self._marker_code == marker:
 
                 # Fill information for table processing_input
+                # Check if any mandatory information is missing
+                # E.g. we need a sequence (nuc) and a specimenid.
+                # if either of these entries is NULL, we discard the record
                 transformed_row = {key: self._transform_value(value, self._data_parser.get(key, lambda x: x)) for key, value in row.items()}
                 null_checks = {self._null_data(key, value)
                                for key, value in transformed_row.items()}
@@ -397,11 +436,11 @@ class TsvParser():
                 if True in null_checks:
                     logger.debug("Found an invalid row in tsv file: %s", row)
                     continue
+
                 # Manually add hash and update indication.
                 values_for_hash = [str(value) for value in transformed_row.values()]
 
                 # Fill information for Table specimin
-                # ToDo: Use get and fallback to 'NULL' here
                 specimen_rows = {column: transformed_row[column] for column in
                                  column_names if column in transformed_row}
 
@@ -409,6 +448,25 @@ class TsvParser():
                 specimen_rows['hash'] = hashlib.sha256(''.join(values_for_hash).encode()).hexdigest()
                 specimen_rows['last_updated'] = datetime.today().strftime('%Y-%m-%d')
                 specimen_rows['include'] = False
+
+                # Process coordinate and insert klimate zone if any coordinates
+                # are available.
+                coords = transformed_row.get('coord', None)
+                specimen_rows['kg_zone'] = None
+                if coords is not None:
+                    # There is an entry we can process, extract the coordinates
+                    # and insert the correct climate zone
+                    lati = transformed_row.get('coord').split(',')[0].strip()[1:] # Remove leading []
+                    long = transformed_row.get('coord').split(',')[1].strip()[:-1] # Remove trailing []
+                    try:
+                        lati = float(lati)
+                        long = float(long)
+                        specimen_rows['kg_zone'] = kgcpy.vectorized_lookupCZ([long], [lati])[0]
+                    except ValueError:
+                        logger.critical("Unable to convert coordinates to float: %s, %s", lati, long)
+                        logger.critical("Original coordinates: %s", transformed_row.get('coord'))
+                        pass
+
                 # Set review to True, so we can simply rewrite row after
                 # checking hash value for changes.
                 specimen_rows['review'] = True

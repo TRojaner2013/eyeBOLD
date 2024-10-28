@@ -9,21 +9,28 @@ import logging
 logger = logging.getLogger(__name__)
 
 class BitIndex(Enum):
-    SELECTED =           0
-    NAME_CHECKED =       1
-    DUPLICATE =          2
-    FAILED_LENGTH =      3
-    HYBRID =             4
-    INCL_KINGDOM =       5
-    INCL_PHYLUM =        6
-    INCL_CLASS =         7
-    INCL_ORDER =         8
-    INCL_FAMILY =        9
-    INCL_SUBFAMILY =    10
-    INCL_TRIBE =        11
-    INCL_GENUS =        12
-    INCL_SPECIES =      13
-    INCL_SUBSPECIES =   14
+    # Notes:
+    # We need to flag both: checked and failed names.
+    # This is due to the fact that we need to know if a name was checked
+    # and if its valid. Otherwise we would mark them as not reviewed.
+
+    SELECTED =           0 # Selected for further processing
+    NAME_CHECKED =       1 # Name checked against GIBF
+    DUPLICATE =          2 # Sequence is a dubliate or subsequence
+    FAILED_LENGTH =      3 # Sequence failed length check
+    HYBRID =             4 # Hybrid status according to regex check
+    INCL_KINGDOM =       5 # Verified kingdom with GBIF
+    INCL_PHYLUM =        6 # Verified phylum with GBIF
+    INCL_CLASS =         7  # Verified class with GBIF
+    INCL_ORDER =         8 # Verified order with GBIF
+    INCL_FAMILY =        9 # Verified family with GBIF
+    INCL_SUBFAMILY =    10 # Verified subfamily with GBIF (NOT IMPLEMENTED)
+    INCL_TRIBE =        11 # Verified tribe with GBIF (NOT IMPLEMENTED)
+    INCL_GENUS =        12 # Verified genus with GBIF
+    INCL_SPECIES =      13 # Verified species with GBIF
+    INCL_SUBSPECIES =   14 # Verified subspecies with GBIF (NOT IMPLEMENTED)
+    BAD_CLASSIFICATION = 15 # Misclassification according to RaxTax
+    NAME_FAILED =        16 # GBIF Name check provided no match
 
     @classmethod
     def get_golden(cls) -> Tuple[int, int]:
@@ -32,15 +39,22 @@ class BitIndex(Enum):
             This is a mask that needs to be set/unset in order for an record
             to becomoe selected.
         """
+        # Set the bits to the values they should have
         golden_mask = 0
         golden_mask |= (1 << cls.NAME_CHECKED.value)
+        golden_mask |= (0 << cls.NAME_FAILED.value)
         golden_mask |= (0 << cls.DUPLICATE.value)
         golden_mask |= (0 << cls.FAILED_LENGTH.value)
+        golden_mask |= (0 << cls.BAD_CLASSIFICATION.value)
 
+        # Set the bits you want to read to 1
         read_mask = 0
         read_mask |= (1 << cls.NAME_CHECKED.value)
+        read_mask |= (1 << cls.NAME_FAILED.value)
         read_mask |= (1 << cls.DUPLICATE.value)
         read_mask |= (1 << cls.FAILED_LENGTH.value)
+        read_mask |= (1 << cls.BAD_CLASSIFICATION.value)
+
 
         return read_mask, golden_mask
 

@@ -5,6 +5,7 @@ import logging
 import sqlite3
 from typing import List, Set, Tuple
 from sqlite.Bitvector import BitIndex, ChecksManager
+from multiprocessing import Pool, cpu_count
 
 logger = logging.getLogger(__name__)
 
@@ -57,20 +58,16 @@ def _mark_duplicates(data: List[Tuple[str, str]]) -> List[Tuple[str, str]]:
             continue
 
         if nuc_san in seen:
+            # Check for exact matches
             unique = False
             checks.append(BitIndex.DUPLICATE)
         else:
+            # Check for matches in substings of the sets sequences
             for seq in seen:
                 if nuc_san in seq:
                     unique = False
                     checks.append(BitIndex.DUPLICATE)
                     break
-
-            # for j in range(i):
-            #     if nuc_san in data[j][1].strip(STRIP_CHARS).replace('-', ''):
-            #         unique = False
-            #         v
-            #         break
 
         if unique:
             logger.debug("Specimenid %s was identified as unique.", specimenid)
@@ -79,7 +76,6 @@ def _mark_duplicates(data: List[Tuple[str, str]]) -> List[Tuple[str, str]]:
         result.append((nuc_san, ChecksManager.generate_mask(checks), specimenid))
 
     return result
-
 
 def purge_duplicates(db_handle: sqlite3.Connection,
                      duplicates: Set[Tuple[int]]) -> None:
@@ -100,19 +96,77 @@ def purge_duplicates(db_handle: sqlite3.Connection,
                "WHERE specimenid = ?;")
 
     parameters = []
+    batch_size = 950
 
+    #ToDO: Lower Priority:
+    #   Maybee avoid using execute many and use single queries instead.
+    #ToDo: HIGH PRIORITY:
+    # Implement this in multithreading approach to spare a lot of time.
     for specimen_ids in duplicates:
-        placeholders = ', '.join(['?'] * len(specimen_ids))
+        results = []
+        for i in range(0, len(specimen_ids), batch_size):
+            batch = specimen_ids[i:i + batch_size]
+            placeholders = ', '.join(['?'] * len(batch))
 
-        query = f"""SELECT specimenid, nuc_raw FROM specimen WHERE\
-                    specimenid IN ({placeholders});"""
-        cursor.execute(query, specimen_ids)
-        results = cursor.fetchall()
+            query = f"""SELECT specimenid, nuc_raw FROM specimen WHERE\
+                        specimenid IN ({placeholders});"""
+            cursor.execute(query, batch)
+            batch_results = cursor.fetchall()
+            results.extend(batch_results)
 
         parameters.extend(_mark_duplicates(results))
 
     cursor.executemany(command, parameters)
     db_handle.commit()
+
+def purge_duplicates_multithreading(db_handle: sqlite3.Connection,
+                                    duplicates: Set[Tuple[int]]) -> None:
+    """ Finds and marks duplicates in database.
+
+        This function writes the results directly into database
+        using the checks column in table specimen.
+
+        Arguments:
+            - db_handle (sqlite3.Connection): Database connection
+            - duplicates (Set[Tuple[int]]): Set with possible duplicates
+                                            specimenids as Tuple
+       """
+
+    cursor = db_handle.cursor()
+
+    command = ("UPDATE specimen SET nuc_san = ?, checks = checks | ? "
+               "WHERE specimenid = ?;")
+
+    parameters = []
+    batch_size = 950
+
+    # To-Do:
+    # Do this in batches as this process consumes a huge amount of RAM
+    # e.g. this might take up to 20 to 30 GB of RAM for the complete database
+    all_results = []
+    for specimen_ids in duplicates:
+        results = []
+        for i in range(0, len(specimen_ids), batch_size):
+            batch = specimen_ids[i:i + batch_size]
+            placeholders = ', '.join(['?'] * len(batch))
+
+            query = f"""SELECT specimenid, nuc_raw FROM specimen WHERE\
+                        specimenid IN ({placeholders});"""
+            cursor.execute(query, batch)
+            batch_results = cursor.fetchall()
+            results.extend(batch_results)
+
+        all_results.append(results)
+
+    logger.info("Starting sequence cleaning in multithreading mode.")
+    with Pool(processes=8) as pool:
+        results = pool.map(_mark_duplicates, all_results)
+
+    for batch in results:
+        parameters.extend(batch)
+    cursor.executemany(command, parameters)
+    db_handle.commit()
+
 
 def disclose_hybrids(db_handle: sqlite3.Connection) -> None:
     """ Finds and marks hybrid species in database. 
@@ -126,6 +180,7 @@ def disclose_hybrids(db_handle: sqlite3.Connection) -> None:
             - db_handle(sqlite3.Connection): Database connection
     """
 
+    # ToDo: Check if we can do this in a single query not fetching all results into memory
     command = ('SELECT specimenid FROM specimen WHERE taxon_species '
                'LIKE \'% x %\' OR taxon_species LIKE \'% X %\';')
 

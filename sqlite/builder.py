@@ -80,14 +80,14 @@ def create_db_file(path: str) -> bool:
     """
 
     if file_exist(path):
-        logging.error("Database %s already exists.", path)
+        logger.error("Database %s already exists.", path)
         raise FileExistsError
 
     try:
         with open(path, 'w+', encoding='utf-8') as handle:
             handle.close()
     except IOError as e:
-        logging.error("Unable to create database %s: %s", path, e)
+        logger.error("Unable to create database %s: %s", path, e)
         raise
 
     return True
@@ -111,14 +111,14 @@ def create_database(db_handle: sqlite3.Connection,
         ValueError: If files do not exist.
     """
 
-    logging.info("Starting to build a new database...")
+    logger.info("Starting to build a new database...")
 
     if not file_exist(tsv_file):
-        logging.critical("Input tsv file %s does not exists.", tsv_file)
+        logger.critical("Input tsv file %s does not exists.", tsv_file)
         raise ValueError(f"File {tsv_file} does not exists.")
 
     if not file_exist(datapackage):
-        logging.critical("Input datapackage file %s does not exists.", datapackage)
+        logger.critical("Input datapackage file %s does not exists.", datapackage)
         raise ValueError(f"File {datapackage} does not exists.")
 
     # We need to create the database in the following order:
@@ -138,20 +138,20 @@ def create_database(db_handle: sqlite3.Connection,
         db_handle.execute(command)
 
     except sqlite3.Error as e:
-        logging.critical("Unable to create database: %s", e)
-        logging.info("Command: %s", command)
+        logger.critical("Unable to create database: %s", e)
+        logger.info("Command: %s", command)
         return False
 
-    if not _create_table(db_handle, CreateCommands.GBIF_INFO_CMD):
-        return False
+    # if not _create_table(db_handle, CreateCommands.GBIF_INFO_CMD):
+    #     return False
     if not _create_table(db_handle, CreateCommands.SPECIMEN_CMD):
         return False
 
     db_handle.commit()
 
     batch_size = 1000000
-    logging.info("Created tables for new database...")
-    logging.info("Inserting data into new database with a batch size of %s.", batch_size)
+    logger.info("Created tables for new database...")
+    logger.info("Inserting data into new database with a batch size of %s.", batch_size)
 
     # Read datapackage file and insert tsv_data:
     tables = TsvParser(tsv_file, marker_code, parser_dict)
@@ -166,20 +166,20 @@ def create_database(db_handle: sqlite3.Connection,
                 table2_batch.append(row)
 
             if len(table1_batch) == batch_size or len(table2_batch) == batch_size:
-                logging.info("Inserting batch into database.")
+                logger.info("Inserting batch into database.")
                 _insert_batch(db_handle, "processing_input", table1_batch)
                 _insert_batch(db_handle, "specimen", table2_batch)
 
                 table1_batch, table2_batch = [], []
 
     if table1_batch:
-        logging.info("Inserting last batch into processing_input.")
+        logger.info("Inserting last batch into processing_input.")
         _insert_batch(db_handle, "processing_input", table1_batch)
     if table2_batch:
-        logging.info("Inserting last batch into specimen.")
+        logger.info("Inserting last batch into specimen.")
         _insert_batch(db_handle, "specimen", table2_batch)
 
-    logging.info("Successfully created new database...")
+    logger.info("Successfully created new database...")
     return True
 
 def _insert_batch(db_handle: sqlite3.Connection,
@@ -198,9 +198,9 @@ def _insert_batch(db_handle: sqlite3.Connection,
         return True
 
     except sqlite3.Error as e:
-        logging.critical("Unable to insert data in processing_input: %s", e)
-        logging.critical("Command: %s", command)
-        logging.critical("Values: %s", values)
+        logger.critical("Unable to insert data in processing_input: %s", e)
+        logger.critical("Command: %s", command)
+        logger.critical("Values: %s", values)
         db_handle.rollback()
         #db_handle.close()
         return False
