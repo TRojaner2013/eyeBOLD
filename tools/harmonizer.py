@@ -121,7 +121,7 @@ def harmonize_stats(taxon_data: Set, rank:str) -> None:
 def raxtax_entry() -> List:
     """Entry point for raxtax process"""
     handle:RaxTaxer = RaxTaxer(ebc.RAXTAX_IN)
-    return handle.run(return_list)
+    return handle.run()
 
 # RaxTax specific classes
 @dataclass
