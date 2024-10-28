@@ -18,18 +18,19 @@ if __name__ == "__main__":
                         level=logging.NOTSET)
     logger = logging.getLogger(__name__)
     logger.info("EyeBOLD started at %s", time_str)
-
-    print(len(sys.argv))
+    logger.debug("Command line arguments: %s", sys.argv)
+    logger.debug("Number of arguments: %d", len(sys.argv))
 
     if len(sys.argv) == 1:
-        logger.info("Starting GUI...")
+        logger.debug("Starting GUI...")
+        raise NotImplementedError("GUI not implemented yet.")
         # Start GUI if non arguments provided
-        eyebold = QApplication([])
-        main_window = QWidget()
-        main_window.show()
+        # eyebold = QApplication([])
+        # main_window = QWidget()
+        # main_window.show()
 
-        eyebold.exec()
+        # eyebold.exec()
     else:
-        logger.info("Invoking CLI...")
+        logger.debug("Invoking CLI...")
         # Run CLI when arguments are provided
         cli_main(sys.argv)
