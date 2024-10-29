@@ -70,7 +70,9 @@ def _init_argparse() -> argparse.ArgumentParser:
                                help="Specify the output file name or path")
     
     # Add parser for build-location-db command
-    subpuarser.add_parser('build-location-db')
+    build_loc_db_parser = subpuarser.add_parser('build-location-db')
+    build_loc_db_parser.add_argument("-s" '--batch_size', type=int, default=1000,
+                                     help="Specify the batch size for the download process")
 
     # Add parser for review command
     subpuarser.add_parser('review')
@@ -118,16 +120,24 @@ def _update_handle(db_file: str, loc_db_file: str, marker: str,
 
 def _review_handle(db_file: str, loc_db_file: str, marker: str) -> bool:
     """ Handles review subcommand"""
-    raise NotImplementedError("Review subcommand not implemented yet.")
+    logger.debug("Called _review_handle()")
+    try:
+        my_db = EyeBoldDatabase(db_file, marker, loc_db_file)
+        my_db.review()
+    except FileNotFoundError:
+        logging.critical("Unable to open database %s."\
+                         "File does not exists.", db_file)
+        sys.exit(3)
+    return True
 
-def _build_location_db_handle(db_file: str, loc_db_file: str, marker: str) -> bool:
+def _build_location_db_handle(db_file: str, loc_db_file: str, marker: str, batch_size: int=1000) -> bool:
     """ Handles build-location-db subcommand"""
     logger.debug("Called _create_handle()")
 
     # Connect to database
     try:
         my_db = EyeBoldDatabase(db_file, marker, loc_db_file)
-        my_db.invoke_tracker()
+        my_db.invoke_tracker(batch_size)
     except FileNotFoundError:
         logging.critical("Unable to open database %s."\
                          "File does not exists.", db_file)
@@ -203,7 +213,6 @@ def cli_main(*args):
     loc_db_file = args.loc_db_file
     marker = args.marker
 
-
     # Set logging verbosity
     if args.verbose == 0:
         logging.info("Setting logging level to CRITICAL.")
@@ -261,7 +270,8 @@ def cli_main(*args):
             sys.exit(0)
     elif args.sub == 'build-location-db':
         logger.debug("Invoking build-location-db handle.")
-        if _build_location_db_handle(db_file, loc_db_file, marker):
+        if _build_location_db_handle(db_file, loc_db_file, marker, args.s__batch_size
+):
             _log_success()
             sys.exit(0)
     elif args.sub == 'review':
