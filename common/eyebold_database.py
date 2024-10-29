@@ -86,7 +86,7 @@ class EyeBoldDatabase():
         """
         if not self._valid_db:
             raise AttributeError
-        raise NotImplementedError
+        self.curate()
 
     def update(self, tsv_file: str, datapackage: str) -> None:
         """ Updates the database with data from new tsv file"""
@@ -138,32 +138,23 @@ class EyeBoldDatabase():
         logger.error("Unable to create database %s.", self._db_file)
         return False, "Unable to create Database."
 
-    def invoke_tracker(self) -> None:
+    def invoke_tracker(self, batch_size: int=2000) -> None:
         """ Invokes raxtax """
 
         if not self._valid_db:
             raise AttributeError
 
         logger.info("Starting tracker process...")
-        validate_location(self._db_file, self._loc_db_file, 100)
-        # tracker_process = Process(target=validate_location,
-        #                           args=(self._db_file, self._loc_db_file, 5000))
-
-        # self._processes.append(tracker_process)
+        validate_location(self._db_file, self._loc_db_file, batch_size)
 
     def _invoke_raxtax(self,) -> List:
         """ Invokes tracker """
         logger.info("Starting raxtax process...")
-        self.export(ExportFormats.RAXTAX, ebc.RAXTAX_IN)
+        self._export_raxtax_db_file(ebc.RAXTAX_DB_IN)
+        self._export_raxtax_query_file(ebc.RAXTAX_QUERY_IN)
+        #self.export(ExportFormats.RAXTAX, ebc.RAXTAX_IN)
         return raxtax_entry()
-        # raxtax_process = Process(target=raxtax_entry,
-        #                          args=(self._db_file, return_list))
 
-        # self._processes.append(raxtax_process)
-
-    # ToDo:
-    #   Rewrrite this function to perform subfuction calls
-    #   Add skip/ommit flags for debugging purposes.
     def curate(self) -> None:
         """ Curates data in database. This process consumes a lot of time."""
         # Find all elements flagged checkable in database.
@@ -184,51 +175,35 @@ class EyeBoldDatabase():
         for level in levels:
             helper.append(self.get_unsanatized_taxonomy_b2t(level))
 
-        max_parameters = 999
         for info_dict in helper:
             data = harmonize_b2t(info_dict)
             cmd_batch = []
+
             for datum in data:
-                #command, values = datum.to_sql_command()
                 command_tuples = datum.to_sql_command()
                 if command_tuples:
                     cmd_batch.extend(command_tuples)
 
                 dublicates.add(tuple(datum.specimenids))
-                #if values:
-                    # We need to limit the length of the parametes to fit to 
-                    # the sqlite3 limit of 999 parameters.
-                    # The limit might depend on build settings and might be higher or lower.
-                #    for i in range(0, len(values), max_parameters):
-                #        chunk = values[i:i + max_parameters]
-                #        cmd_batch.append((command, chunk))
+    
             if cmd_batch:
                 logger.info("Executing %s sql commands...", len(cmd_batch))
                 execute_batches(self._db_handle, cmd_batch)
+
+        logger.info("Finished taxonomic harmonization process...")
 
         # Check dublicates we just extracted...
         logger.info("Purging duplicates from database...")
         purge_duplicates_multithreading(self._db_handle, dublicates)
         logger.info("Finished purging duplicates from database.")
-        # cmd_batch = []
 
-        # for rank, taxaon_dict in helper.items():
-        #     _, data = harmonize(taxaon_dict, rank)
 
-        #     for datum in data:
-        #         command, values = datum.to_sql_command()
-        #         if values:
-        #             cmd_batch.append((command, values))
-
-        logger.info("FINISHED taxonomic harmonization process.")
+        # Flag hybrid species (assuming they are marked with an 'x' in the species field)
         logger.info("Flagging hybrid species in database")
-        # 2. Flag special cases
-        # After sanatizing names we mark all hybrid species.
         disclose_hybrids(self._db_handle)
 
-        # Set selected flag before raxtax export
+        # Set include flag in bitvector for entries that passed all checks untill now
         read_mask, golden_mask = BitIndex.get_golden()
-        #ToDo: add a include column for faster selection after build process
         command = f"""UPDATE specimen
                       SET checks = checks | {1 << BitIndex.SELECTED.value}
                       WHERE (checks & {read_mask}) = {golden_mask};"""
@@ -236,15 +211,8 @@ class EyeBoldDatabase():
         cursor.execute(command)
         self._db_handle.commit()
 
-        ###
-        ### MULTIPROCESSING SECTION
-        ### From here we work with multiple processes to spare time.
-
-        # manager = Manager()
-        # bad_entries = manager.list()
-        # if False:
-        #     # Disable tracker for now...
-        #self._invoke_tracker()
+        # Find misclassified species with raxtax
+        # Note: This process is time consuming
         bad_entries = self._invoke_raxtax()
 
         # for process in self._processes:
@@ -277,7 +245,7 @@ class EyeBoldDatabase():
     def _update_raxtax(self, bad_entries: List) -> None:
         """ Updates the database with the results from the raxtax process """
 
-        command = """UPDATE specimen SET checks = (checks & ~1) | (1 << 15) WHERE specimenid=?;"""
+        command = f"""UPDATE specimen SET checks = (checks & ~1) | (1 << {BitIndex.BAD_CLASSIFICATION.value}) WHERE specimenid=?;"""
 
         parameters = [(entry,) for entry in bad_entries]
         cursor = self._db_handle.cursor()
@@ -312,7 +280,6 @@ class EyeBoldDatabase():
         if level not in levels:
             raise ValueError(f"Invalid level: {level}. Must be one of {levels}")
 
-        # Determine the index of the input level
         level_index = levels.index(level)
 
         # Build the query to fetch data at the specified level
@@ -337,7 +304,6 @@ class EyeBoldDatabase():
 
         params = (True,)
         data = self._query_database(query, params)
-        #result = []
         result_dict = defaultdict(lambda: {"specimenids": []})
 
 
@@ -383,8 +349,6 @@ class EyeBoldDatabase():
             List with taxonomy data of all unsantized rows
         """
 
-        # ToDo: Create better implementation here.
-        # Tthis takes only around 1 min
         query = (f"SELECT {DB_MAP['kingdom']}, {DB_MAP['phylum']},"
                  f" {DB_MAP['class']}, {DB_MAP['order']}, {DB_MAP['family']},"
                  f" {DB_MAP['subfamily']}, {DB_MAP['genus']}, {DB_MAP['species']},"
@@ -418,6 +382,39 @@ class EyeBoldDatabase():
         return {"kingdom": kingdoms, "phylum": phyla, "class": classes,
                 'order': orders, 'family': families, 'subfamily': subfamilies,
                 'genus': genera, 'species': species, 'subspecies': subspecies}
+
+    def _export_raxtax_db_file(self, out_file: str) -> None:
+        """ Exports database file for raxtax """
+        cursor = self._db_handle.cursor()
+
+        query = (f"SELECT checks, specimenid, nuc_san,  {DB_MAP['phylum']}, "
+                 f"{DB_MAP['class']}, {DB_MAP['order']}, {DB_MAP['family']}, "
+                 f"{DB_MAP['genus']}, {DB_MAP['species'] }"
+                 f" FROM specimen WHERE (checks & 1 = 1);")
+
+        cursor.execute(query)
+        rows = cursor.fetchall()
+
+        header = ["checks", "specimenid", "nuc_san", "phylum", "class", "order", "family", "genus", "species"]
+
+        self._export_fasta_raxtax(rows, out_file)
+
+    def _export_raxtax_query_file(self, out_file: str) -> None:
+        """ Exports query file for raxtax """
+        cursor = self._db_handle.cursor()
+
+        # Use better query here that has better checks argument!
+        query = (f"SELECT checks, specimenid, nuc_san,  {DB_MAP['phylum']}, "
+                 f"{DB_MAP['class']}, {DB_MAP['order']}, {DB_MAP['family']}, "
+                 f"{DB_MAP['genus']}, {DB_MAP['species'] }"
+                 f" FROM specimen WHERE ((checks & 1 = 1) AND (review = 1));")
+
+        cursor.execute(query)
+        rows = cursor.fetchall()
+
+        header = ["checks", "specimenid", "nuc_san", "phylum", "class", "order", "family", "genus", "species"]
+
+        self._export_fasta_raxtax(rows, out_file)
 
     def export(self, format: ExportFormats, out_file: str) -> None:
         """ Exports selected data from databse into a file of provided format. """
@@ -507,7 +504,6 @@ class EyeBoldDatabase():
                                         tax_parts.append(f"{species.replace(' ', '_')}")
                                         tax_string = ','.join(tax_parts)
                                         if not set(nuc_raw).issubset(valid_chars):
-                                            #logger.error("Invalid nucleotide sequence in specimen %s", specimenid)
                                             continue
                                         raxtax_string = f">{specimenid};tax={tax_string};\n{nuc_raw}\n"
                                         file.write(raxtax_string)

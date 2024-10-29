@@ -40,10 +40,12 @@ def _get_keys(db_handle: sqlite3.Connection) -> List[int]:
     #          f" (1 << {BitIndex.INCL_SUBSPECIES.value}))"
     #          f" OR (checks & (3 << {BitIndex.INCL_SPECIES.value}) ="
     #          f" (1 << {BitIndex.INCL_SPECIES.value})));")
-    
+
+    # We only want to include entires we habe not checked before.
     query = ("SELECT DISTINCT gbif_key FROM specimen WHERE"
-             f"(checks & (3 << {BitIndex.INCL_SPECIES.value}) ="
-             f" (1 << {BitIndex.INCL_SPECIES.value}));")
+             f"(checks & (1 << {BitIndex.INCL_SPECIES.value}) ="
+             f" (1 << {BitIndex.INCL_SPECIES.value}))"
+             f"AND (checks & (1 << {BitIndex.LOC_CHECKED.value})) = 0;")
     
     cursor = db_handle.cursor()
     cursor.execute(query)
@@ -68,32 +70,87 @@ def _get_file_name(zip_file: str) -> str:
         logger.error("Downloaded file %s is invalid.", zip_file)
         return (False, "")
 
-def validate_location(db_file: str, loc_db_file: str, batch_size: int):
+def _get_new_keys(loc_db_handle: sqlite3.Connection, keys: List[int]) -> Tuple[List[int],List[int]]:
+    """ Returns a list of keys that are not already in the database 
 
-    #ToDo:
-    #   1. Get relevant keys from database [x]
-    #   2. Create multiprocessing pool []
-    #   3. Query GBIF and download data []
-    #   4. Extract arcives []
-    #   5. ??? (Extract relevant information) []
-    #   6. PROFIT (Insert relevant information to DB) []
-    #
+    Args:
+        loc_db_handle (sqlite3.Connection): Connection to the location database
+        keys (List[int]): List of keys to check
+
+    Returns:
+        List[int]: List of keys that are not already in the database
+        List[int]: List of keys that are already in the database
+
+    """
+    cursor = loc_db_handle.cursor()
+
+    cursor.execute("SELECT taxon_key FROM climate_data")
+    existing_keys = set(row[0] for row in cursor.fetchall())
+    new_keys = [key for key in keys if key not in existing_keys]
+
+    
+    return new_keys, list(existing_keys)
+
+def _mark_keys_as_checked(db_handle: sqlite3.Connection,
+                          loc_db_handle: sqlite3.Connection,
+                          keys: List[int]) -> None:
+    """ Marks a key as checked in the database 
+
+    Args:
+        db_handle (sqlite3.Connection): Connection to the database
+        loc_db_handle (sqlite3.Connection): Connection to the location database
+        keys (List[int]): Keys to mark as checked
+
+    Note:
+        We mark keys as checked, so specimens without any occurrence data are not
+        downloaded again and again.
+    """
+
+    _evaluate_location(db_handle, loc_db_handle, keys)
+
+    command = f"""UPDATE specimen SET checks = checks | (1 << {BitIndex.LOC_CHECKED.value}) WHERE gbif_key=?;"""
+    cursor = db_handle.cursor()
+    cursor.executemany(command, [(key,) for key in keys])
+    db_handle.commit()
+
+
+def validate_location(db_file: str, loc_db_file: str, batch_size: int):
+    """ Downloads occurrence data and compares it to data from BOLD 
+
+    Args:
+        db_file (str): Path to the specimen database file
+        loc_db_file (str): Path to the location database file
+        batch_size (int): Number of keys to download at once
+    
+    Note:
+        The download consumes a lot of time and resources.
+    """
+
     db_handle = sqlite3.connect(db_file)
     loc_db_handle = sqlite3.connect(loc_db_file)
+
     keys = _get_keys(db_handle)
+    logger.info("Stating downloading for %s keys", len(keys))
+
+    keys, old_keys = _get_new_keys(loc_db_handle, keys)
+    logger.info("Checking keys reduced keys to download to %s keys", len(keys))
+
+    # Make sure that all already downloaded keys are marked as checked
+    _mark_keys_as_checked(db_handle, loc_db_handle, old_keys)
+    logging.info("Marked %s keys as checked", len(old_keys))
 
     extract_path = os.path.join(".", "locationdata")
     if not os.path.exists(extract_path):
         os.makedirs(extract_path)
 
-    # ToDo: Async handle to download and insert at same time
-    debug_file = os.path.join(".", '0005124-241024112534372.zip')
+    # Use a already downloaded file for debugging
+    #debug_file = os.path.join(".", '0005124-241024112534372.zip')
     #for zip_file in (debug_file,):
-    
-    #for zip_file in get_locations_sql(keys, batch_size):
-    
-    for zip_file in (debug_file,):
-        # Unzip file
+
+    # NOTE: This call works only if gbif account is registered as user to test
+    # SQL-Download feature. Reach out to GBIF to get access!
+    for zip_file, incl_keys in get_locations_sql(keys, batch_size):
+
         status, csv_file = _get_file_name(zip_file)
         if not status:
             logger.error("Unable to access location data in file %s", zip_file)
@@ -105,10 +162,12 @@ def validate_location(db_file: str, loc_db_file: str, batch_size: int):
 
             file_path = os.path.join(extract_path, csv_file)
             _extract_information_2(file_path, loc_db_handle)
+            # Mark downloaded keys as checked
+            _mark_keys_as_checked(db_handle, loc_db_handle, incl_keys)
 
             # Cleanup disk space for obviouse reasons
-            # os.remove(file_path)
-            # os.remove(zip_file)
+            os.remove(file_path)
+            os.remove(zip_file)
 
         except zipfile.BadZipFile:
             logger.error("Unable to extract zip-file %s", zip_file)
@@ -200,11 +259,8 @@ def process_chunk(chunk: pd.DataFrame) -> Tuple[Dict[int, Dict[str, int]], Dict[
         taxon_data[taxon_id][kg_zone] += 1
         country_codes[taxon_id].add(country_code)
 
-    
-    # print(taxon_data, country_codes)
     return taxon_data, country_codes
 
-# Combine results from parallel processing
 def combine_results(results: List[Tuple[Dict[int, Dict[str, int]], Dict[int, Set[str]]]]):
     """
     Combines results from multiple processed chunks into a single dictionary.
@@ -229,7 +285,6 @@ def _extract_information_2(tsv_file: str, db_handle: sqlite3.Connection, num_pro
     chunk_size = 1000000
     pool = mp.Pool(num_processes)
 
-    # List to hold future results for each processed chunk
     results = []
 
     logger.info("Starting to process location data from TSV file with chunk_size of %s", chunk_size)
@@ -240,23 +295,19 @@ def _extract_information_2(tsv_file: str, db_handle: sqlite3.Connection, num_pro
                      quoting=csv.QUOTE_NONE,
                      on_bad_lines='warn',
                      chunksize=chunk_size) as tsv_reader:
-        
-        # Send each chunk to the pool for parallel processing
+
         for chunk in tsv_reader:
             result = pool.apply_async(process_chunk, args=(chunk,))
             results.append(result)
 
-    # Close pool and wait for all processes to complete
     pool.close()
     pool.join()
 
     # Retrieve results and combine them
     processed_results = [result.get() for result in results]
-    #print(processed_results)
     taxon_data, country_codes = combine_results(processed_results)
-    #print(taxon_data, country_codes)
 
-    # Prepare to write to the database
+    # Prepare to write to the location database
     command = """
         INSERT OR REPLACE INTO climate_data (taxon_key, kg_af, kg_am, kg_as, kg_aw,
                                             kg_bsh, kg_bsk, kg_bwh, kg_bwk, kg_cfa,
@@ -272,24 +323,87 @@ def _extract_information_2(tsv_file: str, db_handle: sqlite3.Connection, num_pro
                 :ocean, :country_codes)
     """
 
-    # Prepare the data for bulk insertion as a list of dictionaries
     data_to_insert = []
     for taxon_id, zones in taxon_data.items():
-        # Create a dictionary for the current taxon
         row_data = {'taxon_key': taxon_id}
-        
-        # Fill in climate zone counts, ensuring names match the SQL placeholders
+
         for zone in KOPPEN_ZONES:
             row_data[zone] = zones.get(zone, 0)
-            
-        # Add the country codes as a comma-separated string
+
         row_data['country_codes'] = ','.join(sorted(country_codes[taxon_id]))
-        
-        # Append the dictionary to data_to_insert
+
         data_to_insert.append(row_data)
 
-    # Execute the insert command using named parameters for each row
     cursor = db_handle.cursor()
     cursor.executemany(command, data_to_insert)
     db_handle.commit()
     logger.info("Inserted aggregated data for %d taxon records into database.", len(data_to_insert))
+
+
+def _evaluate_location(db_handle: sqlite3.Connection, loc_db_handle: sqlite3.Connection, keys: List[int]) -> None:
+    """ Evaluates the likelihood of a location being correct 
+        The result is written into the database.
+
+    Args:
+        db_handle (sqlite3.Connection): Connection to the location database
+    """
+
+    # Create a dictionary cursor to store the results
+    loc_db_handle.row_factory = sqlite3.Row
+    loc_cursor = loc_db_handle.cursor()
+
+    db_cursor = db_handle.cursor()
+    # Get all taxon keys we hav edata on 
+    for key in keys:
+        
+        loc_cursor.execute("SELECT * FROM climate_data WHERE taxon_key = ?;", (key,))
+        data = loc_cursor.fetchone()
+
+        if not data:
+            # Species not in database --> No locaton data in GBIF
+            # -> Mark as not verifiable
+            command = f"UPDATE specimen SET geo_info = -1,  checks = checks | (1 << {BitIndex.LOC_EMPTY.value}) WHERE gbif_key = ?;"
+            db_cursor.execute(command, (key,))
+            loc_db_handle.commit()
+            continue
+
+        # Process data
+        country_list = set(data['country_codes'].split(',')) if data['country_codes'] else set()
+        total_occurrences = sum(data["kg_"+zone] for zone in KOPPEN_ZONES)
+
+
+        # Get all occurrences for the taxon key
+        db_cursor.execute("SELECT specimenid, country_iso, kg_zone FROM specimen WHERE gbif_key = ?;", (key,))
+        occurrences = db_cursor.fetchmany(900)
+
+        
+        # Store results
+        command = f"""UPDATE specimen SET geo_info = ?, checks = checks | (? << {BitIndex.LOC_PASSED.value}) WHERE specimenid = ?;"""
+        while occurrences:
+            results = []
+            for occurrence in occurrences:
+                score = 0
+                flag = 0
+                specimen_id, country_iso, kg_zone = occurrence
+
+                if country_iso is not None and country_iso.upper() in country_list:
+                    score = score + 2
+
+                if kg_zone is not None and data['kg_'+kg_zone.lower()] > 0:
+                    score = score + 1
+                    score = score + data['kg_'+kg_zone.lower()] / total_occurrences
+
+                if score > 0:
+                    flag = 1
+
+                results.append((score, flag, specimen_id))
+
+            db_cursor.executemany(command, results)
+            db_handle.commit()
+            occurrences = db_cursor.fetchmany(900)
+
+    # Reset behavior of the cursor
+    loc_db_handle.row_factory = None
+
+    
+

@@ -120,7 +120,7 @@ def harmonize_stats(taxon_data: Set, rank:str) -> None:
 
 def raxtax_entry() -> List:
     """Entry point for raxtax process"""
-    handle:RaxTaxer = RaxTaxer(ebc.RAXTAX_IN)
+    handle:RaxTaxer = RaxTaxer(ebc.RAXTAX_DB_IN, ebc.RAXTAX_QUERY_IN)
     return handle.run()
 
 # RaxTax specific classes
@@ -148,9 +148,10 @@ class RaxTaxData:
 class RaxTaxer():
     """ Class handling raxtax data """
 
-    def __init__(self, in_file: str) -> None:
-        self._in_file = in_file
-        self._out_path = os.path.join(".", f"{in_file.split('.', 2)[1][1:]}.out")
+    def __init__(self, db_in_file: str=None, query_file: str=None) -> None:
+        self._db_in_file = db_in_file
+        self._query_file = query_file
+        self._out_path = os.path.join(".", f"{self._query_file.split('.', 2)[1][1:]}.out")
 
         # Make sure to delete all old files, otherwise we can't detect errors in the process
         if os.path.exists(self._out_path):
@@ -172,7 +173,7 @@ class RaxTaxer():
     def _invoke_raxtax(self) -> None:
         try:
             logger.info("Invoking RaxTax...")
-            subprocess.run(["raxtax", "-d", self._in_file, "-i", self._in_file,
+            subprocess.run(["raxtax", "-d", self._db_in_file, "-i", self._query_file,
                             "--skip-exact-matches", "--redo"], check=True)
 
             if not os.path.exists(self._out_file):

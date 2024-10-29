@@ -149,6 +149,11 @@ def create_database(db_handle: sqlite3.Connection,
 
     db_handle.commit()
 
+    # Create index on gbif_key
+    idx_cmd = "CREATE INDEX idx_gbif_key ON specimen(gbif_key);"
+    db_handle.execute(idx_cmd)
+    db_handle.commit()
+
     batch_size = 1000000
     logger.info("Created tables for new database...")
     logger.info("Inserting data into new database with a batch size of %s.", batch_size)

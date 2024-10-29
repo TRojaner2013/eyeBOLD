@@ -330,7 +330,7 @@ def handle_error(response, batch_index, json_payload):
         raise ValueError("Request failed")
 
 
-def get_locations_sql(keys: List[int], batch_size: int) -> Generator[str, Any, Any]:
+def get_locations_sql(keys: List[int], batch_size: int) -> Generator[Tuple[str, List[int]], Any, Any]:
     """ Creates large download object for occurrences 
 
         Note:
@@ -401,7 +401,7 @@ def get_locations_sql(keys: List[int], batch_size: int) -> Generator[str, Any, A
         # The time has come to download the file. 
         logger.info("Starting download for request: %s", req_id)
         occ.download_get(req_id, file_path)
-        yield os.path.join(file_path, f"{req_id}.zip")
+        yield (os.path.join(file_path, f"{req_id}.zip"), batch)
 
 
 # ToDo: This should yield results so all other logic can be implemented in 

@@ -11,7 +11,7 @@ class CreateCommands(StrEnum):
                     specimenid INTEGER PRIMARY KEY NOT NULL,
                     nuc_raw TEXT NOT NULL,
                     nuc_san TEXT,
-                    geo_info TEXT,
+                    geo_info FLOAT,
                     hash VARCHAR(64) NOT NULL,
                     last_updated DATE NOT NULL,
                     review BOOLEAN NOT NULL,

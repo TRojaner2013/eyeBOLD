@@ -14,23 +14,26 @@ class BitIndex(Enum):
     # This is due to the fact that we need to know if a name was checked
     # and if its valid. Otherwise we would mark them as not reviewed.
 
-    SELECTED =           0 # Selected for further processing
-    NAME_CHECKED =       1 # Name checked against GIBF
-    DUPLICATE =          2 # Sequence is a dubliate or subsequence
-    FAILED_LENGTH =      3 # Sequence failed length check
-    HYBRID =             4 # Hybrid status according to regex check
-    INCL_KINGDOM =       5 # Verified kingdom with GBIF
-    INCL_PHYLUM =        6 # Verified phylum with GBIF
-    INCL_CLASS =         7  # Verified class with GBIF
-    INCL_ORDER =         8 # Verified order with GBIF
-    INCL_FAMILY =        9 # Verified family with GBIF
-    INCL_SUBFAMILY =    10 # Verified subfamily with GBIF (NOT IMPLEMENTED)
-    INCL_TRIBE =        11 # Verified tribe with GBIF (NOT IMPLEMENTED)
-    INCL_GENUS =        12 # Verified genus with GBIF
-    INCL_SPECIES =      13 # Verified species with GBIF
-    INCL_SUBSPECIES =   14 # Verified subspecies with GBIF (NOT IMPLEMENTED)
-    BAD_CLASSIFICATION = 15 # Misclassification according to RaxTax
-    NAME_FAILED =        16 # GBIF Name check provided no match
+    SELECTED =               0 # Selected for further processing
+    NAME_CHECKED =           1 # Name checked against GIBF
+    DUPLICATE =              2 # Sequence is a dubliate or subsequence
+    FAILED_LENGTH =          3 # Sequence failed length check
+    HYBRID =                 4 # Hybrid status according to regex check
+    INCL_KINGDOM =           5 # Verified kingdom with GBIF
+    INCL_PHYLUM =            6 # Verified phylum with GBIF
+    INCL_CLASS =             7 # Verified class with GBIF
+    INCL_ORDER =             8 # Verified order with GBIF
+    INCL_FAMILY =            9 # Verified family with GBIF
+    INCL_SUBFAMILY =        10 # Verified subfamily with GBIF (NOT IMPLEMENTED)
+    INCL_TRIBE =            11 # Verified tribe with GBIF (NOT IMPLEMENTED)
+    INCL_GENUS =            12 # Verified genus with GBIF
+    INCL_SPECIES =          13 # Verified species with GBIF
+    INCL_SUBSPECIES =       14 # Verified subspecies with GBIF (NOT IMPLEMENTED)
+    BAD_CLASSIFICATION =    15 # Misclassification according to RaxTax
+    NAME_FAILED =           16 # GBIF Name check provided no match
+    LOC_CHECKED =           17 # Location checked against GBIF
+    LOC_PASSED =            18 # Location is uncertain
+    LOC_EMPTY =             19 # Unable to check location - no occurrence data
 
     @classmethod
     def get_golden(cls) -> Tuple[int, int]:
