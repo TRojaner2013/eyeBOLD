@@ -6,7 +6,7 @@ import csv
 import json
 import logging
 import copy
-import kgcpy
+import kgcpy # type: ignore
 
 import hashlib
 

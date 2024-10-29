@@ -14,9 +14,9 @@ import requests
 import json
 
 from typing import Any, Dict, List, Tuple, Generator
-from pygbif.species import name_backbone
-from pygbif import occurrences as occ
-from pygbif import maps
+from pygbif.species import name_backbone # type: ignore
+from pygbif import occurrences as occ # type: ignore
+from pygbif import maps # type: ignore
 
 from sqlite.parser import GbifName, TAXONOMY_MAP, TAXONOMY_TO_INT, INT_TO_TAXONOMY
 from sqlite.Bitvector import BitIndex, ChecksManager

@@ -12,7 +12,7 @@ from collections import defaultdict
 
 from itertools import chain
 from typing import Any, List, Tuple, Set, Dict
-import kgcpy
+import kgcpy # type: ignore
 
 from sqlite.Bitvector import BitIndex
 from gbif.gbif import get_locations_sql
