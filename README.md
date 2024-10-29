@@ -21,6 +21,12 @@ Some parts are implemented in a sequential order, other parts are executed in pa
 
 Espacially downloading the geo data from GBIF is time consuming. The process will take around one or two days depending on your internet connetion.
 
+Use command line to build the curated database:
+
+1. python main.py db loc_db marker build tsv datapackage
+2. python main.py db loc_db marker review -- This is done to fix all errrors on first build process
+3. Use database with queries e.g. python main db loc_db marker query "SELECT * FROM specimen where include = 1;"
+
 # A word about GBIF
 
 During the setup process, we need to authenticate against the GBIF API. It's important to be aware that pygbif, the library we use to interact with GBIF, utilizes HTTP for communication. This means the data transfer might not be encrypted by default.
