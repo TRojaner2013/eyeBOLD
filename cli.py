@@ -36,7 +36,7 @@ def _init_argparse() -> argparse.ArgumentParser:
 
     #ToDo: Add a help text here.
     subpuarser = my_parser.add_subparsers(title='Subparser',
-                                          description='build, update, export, query',
+                                          description='build, update, export, query, review',
                                           help='',
                                           dest='sub')
 
