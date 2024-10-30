@@ -191,7 +191,7 @@ class ChecksManager:
             UPDATE specimen
             SET checks = checks & ~(1 << ?)
             WHERE specimenid = ?
-        """, (bit_index, specimen_id))
+        """, (bit_index.value, specimen_id))
         self._db_handle.commit()
 
     def check_bit(self, specimen_id: int, bit_index: BitIndex):
@@ -200,6 +200,6 @@ class ChecksManager:
             SELECT (checks & (1 << ?)) != 0
             FROM specimen
             WHERE specimenid = ?
-        """, (bit_index, specimen_id))
+        """, (bit_index.value, specimen_id))
         result = cursor.fetchone()
         return result[0] if result else False

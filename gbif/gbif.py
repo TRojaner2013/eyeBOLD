@@ -75,7 +75,7 @@ def _evaluate_verbose_response(rank: str, result: Dict) -> Dict:
 
     return res
 
-def query_name_backbone_b2t(query: Dict) -> GbifName:
+def query_name_backbone_b2t(query: Dict, retries: int=3) -> GbifName:
     """Queries GBIF name backbone service"""
 
     # GBIF Returns one of the following matchTypes:
@@ -98,11 +98,16 @@ def query_name_backbone_b2t(query: Dict) -> GbifName:
 
     except Exception as e:
         # Most likely this will be a Connection timeout error.
-        # ToDo: Do not raise but return error value in production
-        logger.error(('Name backbone querry failed.\n\t'
+        if retries > 0:
+            # Time-out error, retry after waiting for a while
+            logger.debug('Name harmonization failed, retrying in 30 seconds.')
+            time.sleep(30)
+            return query_name_backbone_b2t(query, retries-1)
+
+        logger.warning('Name harmonization failed, please run review command.')
+        logger.debug(('Name backbone querry failed.\n\t'
                        'Query: %s \n\tRank: %s \n\t'
                        'Error: %s') , query, query_rank, e)
-
         return GbifName(query.get('query'), query_rank,  {}, {}, query.get('specimenids', []))
 
     new_data = GbifName(query.get('query'), query_rank,  result, {}, query.get('specimenids', []))
@@ -112,7 +117,6 @@ def query_name_backbone_b2t(query: Dict) -> GbifName:
     # 1. get match type
     match_type = result.get('matchType')
     confidence = result.get('confidence', 100)
-    #score = -100
     status = result.get('status')
     match_rank = result.get('rank')
 
@@ -127,6 +131,7 @@ def query_name_backbone_b2t(query: Dict) -> GbifName:
         # No result in GBIF
         # Make sure that we return a checked and failed flag here
         # Otherwise we would keep the value as needs to be reviewed.
+        index_list = []
         index_list.append(BitIndex.NAME_CHECKED)
         index_list.append(BitIndex.NAME_FAILED)
         new_data.insert_dict['checks'] = ChecksManager.generate_mask(index_list)
@@ -198,7 +203,11 @@ def query_name_backbone_b2t(query: Dict) -> GbifName:
             index_list.remove(BitIndex.from_string(query_rank))
 
             current_rank = TAXONOMY_TO_INT['subspecies']
-            end_rank = TAXONOMY_TO_INT[match_rank.lower()]
+            # Bug: match_rank might be something else than we expect.
+            # This might e.g be 'form' for plants. Untill fix, we just
+            # remove these entries.
+            # ToDo: Fix-me (Discovered 30-10-2024)
+            end_rank = TAXONOMY_TO_INT.get(match_rank.lower(), TAXONOMY_TO_INT['kingdom'])
             while  current_rank > end_rank:
                 try:
                     index_list.remove(BitIndex.from_string(INT_TO_TAXONOMY[current_rank]))

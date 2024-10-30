@@ -142,8 +142,6 @@ def create_database(db_handle: sqlite3.Connection,
         logger.info("Command: %s", command)
         return False
 
-    # if not _create_table(db_handle, CreateCommands.GBIF_INFO_CMD):
-    #     return False
     if not _create_table(db_handle, CreateCommands.SPECIMEN_CMD):
         return False
 
