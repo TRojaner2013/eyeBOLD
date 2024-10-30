@@ -16,7 +16,7 @@ from sqlite.builder import open_db_file, create_database, create_db_file, execut
 from sqlite.parser import DB_MAP
 from sqlite.Bitvector import BitIndex
 from tools.harmonizer import harmonize, harmonize_b2t, raxtax_entry
-from tools.sanitizer import purge_duplicates, disclose_hybrids, purge_duplicates_multithreading
+from tools.sanitizer import purge_duplicates, disclose_hybrids, purge_duplicates_multithreading, purge_duplicates_multithreading_2
 from tools.tracker import validate_location
 
 logger = logging.getLogger(__name__)
@@ -170,7 +170,7 @@ class EyeBoldDatabase():
         levels = ['kingdom', 'phylum', 'class', 'order', 'family', 'genus', 'species', 'subspecies']
         levels.reverse()
 
-        dublicates = set()
+        duplicates = set()
 
         for level in levels:
             helper.append(self.get_unsanatized_taxonomy_b2t(level))
@@ -184,7 +184,7 @@ class EyeBoldDatabase():
                 if command_tuples:
                     cmd_batch.extend(command_tuples)
 
-                dublicates.add(tuple(datum.specimenids))
+                duplicates.add(tuple(datum.specimenids))
     
             if cmd_batch:
                 logger.info("Executing %s sql commands...", len(cmd_batch))
@@ -194,7 +194,14 @@ class EyeBoldDatabase():
 
         # Check dublicates we just extracted...
         logger.info("Purging duplicates from database...")
-        purge_duplicates_multithreading(self._db_handle, dublicates)
+        #purge_duplicates_multithreading(self._db_handle, dublicates)
+        #purge_duplicates(self._db_handle, duplicates)
+        if max([len(x) for x in duplicates]) < 10000:
+            logger.info("Using multithreading approach for purging duplicates.")
+            purge_duplicates_multithreading(self._db_handle, duplicates)
+        else:
+            logger.info("Using full parallel approach for purging duplicates.")
+            purge_duplicates_multithreading_2(self._db_handle, duplicates)
         logger.info("Finished purging duplicates from database.")
 
 
