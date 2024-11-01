@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass#, field
 
 
-import common.constants as ebc
+import common.constants as const
 from gbif.gbif import query_name_backbone, name_backbone_stat, query_name_backbone_b2t
 from sqlite.parser import GbifName
 
@@ -120,7 +120,7 @@ def harmonize_stats(taxon_data: Set, rank:str) -> None:
 
 def raxtax_entry() -> List:
     """Entry point for raxtax process"""
-    handle:RaxTaxer = RaxTaxer(ebc.RAXTAX_DB_IN, ebc.RAXTAX_QUERY_IN)
+    handle:RaxTaxer = RaxTaxer(const.RAXTAX_DB_IN, const.RAXTAX_QUERY_IN)
     return handle.run()
 
 # RaxTax specific classes

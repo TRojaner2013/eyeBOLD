@@ -35,6 +35,27 @@ class BitIndex(Enum):
     LOC_PASSED =            18 # Location is uncertain
     LOC_EMPTY =             19 # Unable to check location - no occurrence data
 
+
+    @classmethod
+    def get_update_clear_mask(cls) -> int:
+        """ Returns a mask that can be used to clear bits during update process
+        
+            Note:
+                As of now we just reset all bits except for the location related ones.
+                All other bits are resetted during the update process anyways.
+
+            Returns:
+                int: Mask that can be used to clear bits
+        """
+
+        # Set the bits to one that shall be kept
+        # and apply the mask by changes = changes & mask
+        mask = 0
+        mask |= (1 << cls.LOC_CHECKED.value)
+        mask |= (1 << cls.LOC_EMPTY.value)
+        mask |= (1 << cls.LOC_PASSED.value)
+        return mask
+
     @classmethod
     def get_golden(cls) -> Tuple[int, int]:
         """ Returns golden flags 

@@ -39,7 +39,7 @@ class GbifName:
     insert_dict: dict
     specimenids: List[int]
 
-    def to_sql_command(self) -> List[Tuple[str, int]]:#Tuple[str, List[str]]:
+    def to_sql_command(self) -> List[Tuple[str, int]]:
         """Returns SQL update command for instance"""
         update_columns = []
         parameters = []
@@ -60,8 +60,7 @@ class GbifName:
 
         if not update_columns:
             # These are failed GBIF queries
-            # ToDo -- HIGH PRIORITY:
-            #   Set flag in database!
+            # We still need to update the checks column
             commands.append(("", []))
             return commands
 
@@ -474,6 +473,129 @@ class TsvParser():
                 return {'processing_input': transformed_row,
                         'specimen': specimen_rows
                 }
+
+        self._file.close()
+        raise StopIteration
+    
+class TsvUpdateParser():
+    """ Update TSV Parser for BOLD """
+
+    def __init__(self, tsv_file: str, marker_code: str,
+                 data_parser: dict) -> None:
+
+        if not file_exist(tsv_file):
+            raise ValueError(f"File {tsv_file} does not exist")
+
+        self._path = tsv_file
+        self._marker_code = marker_code
+        self._file = open(tsv_file, newline='\n', encoding='utf-8')
+        self._tsv_reader = csv.DictReader(self._file,
+                                          delimiter='\t',
+                                          quoting=csv.QUOTE_NONE)
+
+        # We need to rename the headers to match the database column names here
+        self._tsv_reader.fieldnames = [DB_MAP.get(header, header) for header
+                                       in self._tsv_reader.fieldnames]
+
+        self._data_parser = data_parser
+
+    @staticmethod
+    def _null_data(row: str, value: str) -> bool:
+        """ Returns True if a mandatory field is NULL """
+        if NOT_NULL_MAP.get(row, False):
+            return value is None
+
+        return False
+
+    def _transform_value(self, value: Any, pars_func: callable) -> Any:
+        """ Transform the value for SQL insertion """
+        if (value is None) or (value.strip() == '') or (value.strip() == 'None'):
+            return None
+
+        return pars_func(value)
+
+    def __iter__(self) -> 'TsvParser':
+        return self
+
+    def __next__(self) -> Tuple[str, str, Dict[str, str]]:
+        """ Returns next element in tsv_file with marker
+
+        The marker object is not checked for validity.
+
+        Returns:
+            Tuple containing the specimenid, hash and the row for insertion as a dictionary
+        """
+
+        # This are the columns we need to just copy to the new table
+        # If you need to add more collums, add them here.
+        column_names = [
+            "taxon_rank",
+            "taxon_kingdom",
+            "taxon_phylum",
+            "taxon_class",
+            "taxon_order",
+            "taxon_family",
+            "taxon_subfamily",
+            "taxon_tribe",
+            "taxon_genus",
+            "taxon_species",
+            "taxon_subspecies",
+            "identification_rank",
+            "specimenid",
+            "country_iso"
+        ]
+
+        for row in self._tsv_reader:
+            marker = row.get('marker_code', None)
+            if marker is not None and self._marker_code == marker:
+
+                # Fill information for table processing_input
+                # Check if any mandatory information is missing
+                # E.g. we need a sequence (nuc) and a specimenid.
+                # if either of these entries is NULL, we discard the record
+                transformed_row = {key: self._transform_value(value, self._data_parser.get(key, lambda x: x)) for key, value in row.items()}
+                null_checks = {self._null_data(key, value)
+                               for key, value in transformed_row.items()}
+
+                if True in null_checks:
+                    logger.debug("Found an invalid row in tsv file: %s", row)
+                    continue
+
+                # Manually add hash and update indication.
+                values_for_hash = [str(value) for value in transformed_row.values()]
+
+                # Fill information for Table specimin
+                specimen_rows = {column: transformed_row[column] for column in
+                                 column_names if column in transformed_row}
+
+                specimen_rows['nuc_raw'] = transformed_row['nuc']
+                specimen_rows['hash'] = hashlib.sha256(''.join(values_for_hash).encode()).hexdigest()
+                specimen_rows['last_updated'] = datetime.today().strftime('%Y-%m-%d')
+                specimen_rows['include'] = False
+
+                # Process coordinate and insert klimate zone if any coordinates
+                # are available.
+                coords = transformed_row.get('coord', None)
+                specimen_rows['kg_zone'] = None
+                if coords is not None:
+                    # There is an entry we can process, extract the coordinates
+                    # and insert the correct climate zone
+                    lati = transformed_row.get('coord').split(',')[0].strip()[1:] # Remove leading []
+                    long = transformed_row.get('coord').split(',')[1].strip()[:-1] # Remove trailing []
+                    try:
+                        lati = float(lati)
+                        long = float(long)
+                        specimen_rows['kg_zone'] = kgcpy.vectorized_lookupCZ([long], [lati])[0]
+                    except ValueError:
+                        logger.critical("Unable to convert coordinates to float: %s, %s", lati, long)
+                        logger.critical("Original coordinates: %s", transformed_row.get('coord'))
+                        pass
+
+                # Set review to True, so we can simply rewrite row after
+                # checking hash value for changes.
+                specimen_rows['review'] = True
+
+                return (specimen_rows['specimenid'], specimen_rows['hash'], specimen_rows)
 
         self._file.close()
         raise StopIteration

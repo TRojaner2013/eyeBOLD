@@ -1,5 +1,6 @@
 """ Module that defines the database object """
 
+from datetime import datetime
 import logging
 import sqlite3
 import sys
@@ -11,8 +12,8 @@ from multiprocessing import Process, Manager
 
 from common.helper import file_exist
 from common.location_database import LocationDatabase
-import common.constants as ebc
-from sqlite.builder import open_db_file, create_database, create_db_file, execute_batches
+import common.constants as const
+from sqlite.builder import open_db_file, create_database, create_db_file, execute_batches, insert_updates
 from sqlite.parser import DB_MAP
 from sqlite.Bitvector import BitIndex
 from tools.harmonizer import harmonize, harmonize_b2t, raxtax_entry
@@ -91,17 +92,142 @@ class EyeBoldDatabase():
     def update(self, tsv_file: str, datapackage: str) -> None:
         """ Updates the database with data from new tsv file"""
 
-        logger.info("Starting update process for database %s", self._db_file)
-        if self._valid_db:
+        if not self._valid_db:
             raise AttributeError
 
+        if not file_exist(self._db_file):
+            logger.error("Unable to find database at %s.", self._db_file)
+            raise FileNotFoundError
+
         if not file_exist(tsv_file):
-            raise ValueError
+            logger.error("Unable to find tsv file at %s.", tsv_file)
+            raise FileNotFoundError
 
         if not file_exist(datapackage):
-            raise ValueError
+            logger.error("Unable to find datapackage at %s.", datapackage)
+            raise FileNotFoundError
 
-        raise NotImplementedError
+        logger.info("Starting update process for database %s", self._db_file)
+
+
+        # Find all entries that are changed and new
+        new_ids, changed_ids =  insert_updates(self._db_file, tsv_file, datapackage, self._marker_code)
+        all_ids = [values[0] for values in changed_ids]
+        all_ids.extend(new_ids)
+
+        # 0. Sanity check
+        if len(all_ids) == 0:
+            logger.info("No new or updated entries found.")
+            return
+
+        # 1. Check names for all new/updated entries
+        logger.info("Starting taxonomic harmonization process...")
+
+
+        helper = []
+        levels = ['kingdom', 'phylum', 'class', 'order', 'family', 'genus', 'species', 'subspecies']
+        levels.reverse()
+
+        for level in levels:
+            helper.append(self.get_unsanatized_taxonomy_b2t(level))
+
+        for info_dict in helper:
+            data = harmonize_b2t(info_dict)
+            cmd_batch = []
+
+            for datum in data:
+                command_tuples = datum.to_sql_command()
+                if command_tuples:
+                    cmd_batch.extend(command_tuples)
+    
+            if cmd_batch:
+                logger.info("Executing %s sql commands...", len(cmd_batch))
+                execute_batches(self._db_handle, cmd_batch)
+
+        logger.info("Finished taxonomic harmonization process...")
+
+        # Find the taxonomy_ids for all updated entries.
+
+        gbif_keys = set()
+        for i in range(0, len(all_ids), const.SQL_SAVE_NUM_VARS):
+            chunk = all_ids[i:i + const.SQL_SAVE_NUM_VARS]
+            query = f"""SELECT gbif_key FROM specimen WHERE specimenid IN ({','.join(['?'] * len(chunk))});"""
+            cursor.execute(query, chunk)
+
+            for row in cursor.fetchall():
+                gbif_keys.add(row[0])
+
+
+        # Remove None and duplicate keys
+        gbif_keys.discard(None)
+        if len(gbif_keys) == 0:
+            # Sanity check, if we end up here something went wrong...
+            logger.error("Stopping update process: No gbif_keys found for updated entries.")
+            logger.error(" PLEASE CONTACT DEVELOPER OR OPEN AN ISSUE ON GITHUB.")
+            return
+
+        save_keys = list(gbif_keys)
+
+        # Clear all flags for the updated entries
+        mask = BitIndex.get_update_clear_mask()
+        cmd = f"""UPDATE specimen SET include = False, checks = checks & {mask} WHERE gbif_key = ?;"""
+        self._db_handle.executemany(cmd, save_keys)
+        self._db_handle.commit()
+
+        # 2. Get list of duplicates
+        duplicates = []
+        for i in range(0, len(gbif_keys), const.SQL_SAVE_NUM_VARS):
+            chunk = gbif_keys[i:i + const.SQL_SAVE_NUM_VARS]
+            query = f"""SELECT GROUP_CONCAT(specimenid) AS specimen_ids
+                        FROM specimen
+                        WHERE gbif_key IN ({','.join(['?'] * len(chunk))});"""
+            cursor.execute(query, chunk)
+            for row in cursor.fetchall():
+                specimen_ids = list(map(int, row[0].split(',')))
+                duplicates.append(specimen_ids)
+
+
+        #duplicates = set(duplicates)
+        #Presort instances list.
+        duplicates.sort(key=lambda x: len(x))
+        trivial_instances = [x for x in duplicates if len(x) <= const.TRIVIAL_SIZE]
+        larger_instances = [x for x in duplicates if len(x) > const.TRIVIAL_SIZE]
+
+
+        logger.info("Purging duplicates from database...")
+        logger.info("Starting trivial instances at %s", datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+        purge_duplicates(self._db_handle, trivial_instances)
+        logger.info("Starting larger instances at %s", datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+        purge_duplicates_multithreading_2(self._db_handle, larger_instances)
+        logger.info("Finished larger instances at %s", datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+
+        # Flag hybrid species (assuming they are marked with an 'x' in the species field)
+        logger.info("Flagging hybrid species in database")
+        disclose_hybrids(self._db_handle)
+
+        # Set include flag in bitvector for entries that passed all checks untill now
+        read_mask, golden_mask = BitIndex.get_golden()
+        command = f"""UPDATE specimen
+                      SET checks = checks | {1 << BitIndex.SELECTED.value}
+                      WHERE (checks & {read_mask}) = {golden_mask};"""
+        cursor = self._db_handle.cursor()
+        cursor.execute(command)
+        self._db_handle.commit()
+
+        # Find misclassified species with raxtax
+        bad_entries = self._invoke_raxtax()
+        self._update_raxtax(bad_entries)
+
+        command = """UPDATE specimen SET review = False WHERE (checks & ?) = 2;"""
+        cursor.execute(command, (1 << BitIndex.NAME_CHECKED.value,))
+        self._db_handle.commit()
+
+        command = """UPDATE specimen SET include = True WHERE (checks & ?) = 1;"""
+        cursor = self._db_handle.cursor()
+        cursor.execute(command, (1 << BitIndex.SELECTED.value,))
+        self._db_handle.commit()
+
+        logger.info("Finished updating process")
 
     def create(self, tsv_file: str, datapackage: str) -> Tuple[bool, str]:
         """Crates a new valid database from scratch"""
@@ -150,9 +276,8 @@ class EyeBoldDatabase():
     def _invoke_raxtax(self,) -> List:
         """ Invokes tracker """
         logger.info("Starting raxtax process...")
-        self._export_raxtax_db_file(ebc.RAXTAX_DB_IN)
-        self._export_raxtax_query_file(ebc.RAXTAX_QUERY_IN)
-        #self.export(ExportFormats.RAXTAX, ebc.RAXTAX_IN)
+        self._export_raxtax_db_file(const.RAXTAX_DB_IN)
+        self._export_raxtax_query_file(const.RAXTAX_QUERY_IN)
         return raxtax_entry()
 
     def curate(self) -> None:
@@ -170,7 +295,7 @@ class EyeBoldDatabase():
         levels = ['kingdom', 'phylum', 'class', 'order', 'family', 'genus', 'species', 'subspecies']
         levels.reverse()
 
-        duplicates = set()
+        #duplicates = set()
 
         for level in levels:
             helper.append(self.get_unsanatized_taxonomy_b2t(level))
@@ -184,7 +309,7 @@ class EyeBoldDatabase():
                 if command_tuples:
                     cmd_batch.extend(command_tuples)
 
-                duplicates.add(tuple(datum.specimenids))
+                #duplicates.add(tuple(datum.specimenids))
     
             if cmd_batch:
                 logger.info("Executing %s sql commands...", len(cmd_batch))
@@ -192,18 +317,47 @@ class EyeBoldDatabase():
 
         logger.info("Finished taxonomic harmonization process...")
 
-        # Check dublicates we just extracted...
-        logger.info("Purging duplicates from database...")
-        #purge_duplicates_multithreading(self._db_handle, dublicates)
-        #purge_duplicates(self._db_handle, duplicates)
-        if max([len(x) for x in duplicates]) < 10000:
-            logger.info("Using multithreading approach for purging duplicates.")
-            purge_duplicates_multithreading(self._db_handle, duplicates)
-        else:
-            logger.info("Using full parallel approach for purging duplicates.")
-            purge_duplicates_multithreading_2(self._db_handle, duplicates)
-        logger.info("Finished purging duplicates from database.")
+        # ToDo: Make this a function in next release
+        # Get all unique gbif_keys representing each one distict taxon
+        cursor = self._db_handle.cursor()
+        cmd = """SELECT DISTINCT gbif_key FROM specimen;"""
+        cursor.execute(cmd)
+        gbif_keys = [row[0] for row in cursor.fetchall() if row[0] is not None]
 
+        if not gbif_keys:
+            # Sanity check, if we end up here something went wrong...
+            logger.error("No gbif_keys found in database.")
+            logger.error("Please check input data or conatct developer.")
+            return(False, "No gbif_keys found in database.")
+
+       # 2. Get list of duplicates
+        duplicates = []
+        for i in range(0, len(gbif_keys), const.SQL_SAVE_NUM_VARS):
+            chunk = gbif_keys[i:i + const.SQL_SAVE_NUM_VARS]
+            query = f"""SELECT GROUP_CONCAT(specimenid) AS specimen_ids
+                        FROM specimen
+                        WHERE gbif_key IN ({','.join(['?'] * len(chunk))})
+                        GROUP BY gbif_key;"""
+            cursor.execute(query, chunk)
+            for row in cursor.fetchall():
+                specimen_ids = list(map(int, row[0].split(',')))
+                duplicates.append(specimen_ids)
+
+        # Check dublicates we just extracted...
+        duplicates.sort(key=lambda x: len(x))
+        tiny_instances = [x for x in duplicates if len(x) < const.TRIVIAL_SIZE]
+        larger_instances = [x for x in duplicates if len(x) >= const.TRIVIAL_SIZE]
+
+        logger.info("Purging duplicates from database...")
+        if tiny_instances:
+            logger.info("Starting with %s tiny instances at %s", len(tiny_instances), datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+            purge_duplicates(self._db_handle, tiny_instances)
+            logger.info("Finished trivial instances at %s", datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+        if larger_instances:
+            logger.info("Starting %s larger instances at %s", len(larger_instances), datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+            purge_duplicates_multithreading_2(self._db_handle, larger_instances)
+            logger.info("Finished larger instances at %s", datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+        logger.info("Purging duplicates finished...")
 
         # Flag hybrid species (assuming they are marked with an 'x' in the species field)
         logger.info("Flagging hybrid species in database")
@@ -214,7 +368,6 @@ class EyeBoldDatabase():
         command = f"""UPDATE specimen
                       SET checks = checks | {1 << BitIndex.SELECTED.value}
                       WHERE (checks & {read_mask}) = {golden_mask};"""
-        cursor = self._db_handle.cursor()
         cursor.execute(command)
         self._db_handle.commit()
 
@@ -222,21 +375,11 @@ class EyeBoldDatabase():
         # Note: This process is time consuming
         bad_entries = self._invoke_raxtax()
 
-        # for process in self._processes:
-        #     process.start()
-
-        # 4. Check ORF in Sequences
-
-        # Wait for all processes to finish
-        # for process in self._processes:
-        #     process.join()
-        
         # Update the database with the results from the raxtax process
         self._update_raxtax(bad_entries)
 
         # Set review flag to false for all curated entries
         # Note: This enables us to check failed name lookups again
-
         command = """UPDATE specimen SET review = False WHERE (checks & ?) = 2;"""
         cursor.execute(command, (1 << BitIndex.NAME_CHECKED.value,))
         self._db_handle.commit()
@@ -323,25 +466,8 @@ class EyeBoldDatabase():
             result_dict[key]["rank"] = level
             result_dict[key][level] = None # Remove enty to use as query
 
-        # Convert the result_dict to a list of dictionaries
+        # Convert the result_dict to a list of values
         result = list(result_dict.values())
-
-        # for entry in data:
-        #     entry_dict = {
-        #         "query": entry[level_index] if entry[level_index] else None,
-        #         "rank": level,
-        #         "kingdom":      entry[0] if entry[0] else None,
-        #         "phylum":       entry[1] if entry[1] else None,
-        #         "class":        entry[2] if entry[2] else None,
-        #         "order":        entry[3] if entry[3] else None,
-        #         "family":       entry[4] if entry[4] else None,
-        #         "genus":        entry[5] if entry[5] else None,
-        #         "species":      entry[6] if entry[6] else None,
-        #         "subspecies":   entry[7] if entry[7] else None,
-        #         "specimenid":   entry[8] if entry[8] else None
-        #     }
-        #     entry_dict[level] = None
-        #     result.append(entry_dict)
 
         return result
 

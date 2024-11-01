@@ -52,12 +52,6 @@ def _mark_duplicates(data: List[Tuple[str, str]]) -> List[Tuple[str, str]]:
             logger.debug("Specimenid %s failed length check.", specimenid)
             checks.append(BitIndex.FAILED_LENGTH)
 
-        # if i == 0:
-        #     logger.debug("Specimenid %s was identified as unique.", specimenid)
-        #     seen.add(nuc_san)
-        #     result.append((nuc_san, ChecksManager.generate_mask(checks), specimenid))
-        #     continue
-
         if nuc_san in seen:
             # Check for exact matches
             unique = False
@@ -116,13 +110,6 @@ def _mark_duplicates_presorted(data: List[Tuple[str, str]]) -> Tuple[List[Tuple[
         if len(nuc_san) < 200:
             logger.debug("Specimenid %s failed length check.", specimenid)
             checks.append(BitIndex.FAILED_LENGTH)
-
-        # if i == 0:
-        #     logger.debug("Specimenid %s was identified as unique.", specimenid)
-        #     seen.add(nuc_san)
-        #     unique_list.append((specimenid, nuc_san))
-        #     unique_sql_params.append((nuc_san, ChecksManager.generate_mask(checks), specimenid))
-        #     continue
 
         if nuc_san in seen:
             # Check for exact matches
@@ -213,10 +200,10 @@ def purge_duplicates_multithreading_2(db_handle: sqlite3.Connection,
 
     # Instances with over 50000 sequences are considered hard instances
     # We will process them in a separate loop
-    hard_barrier = 50000
+    hard_barrier = 5000000
     subproblem_size = int(hard_barrier / cpu_count())
     hard_list = []
-    simpel_list = []
+    simple_list = []
 
     # Init process
     cursor = db_handle.cursor()
@@ -230,24 +217,27 @@ def purge_duplicates_multithreading_2(db_handle: sqlite3.Connection,
         if len(specimen_ids) > hard_barrier:
             hard_list.append(specimen_ids)
         else:
-            simpel_list.append(specimen_ids)
+            simple_list.append(specimen_ids)
 
-    logger.info("Got %s hard instances and %s simple instances...", len(hard_list), len(simpel_list))
+    logger.info("Got %s hard instances and %s simple instances...", len(hard_list), len(simple_list))
     logger.info("Maximum size in hard instances is %s sequences.", max([len(x) for x in hard_list]) if hard_list else "0")
-    logger.info("Maximum size in simple instances is %s sequences.", max([len(x) for x in simpel_list]) if simpel_list else "0")
+    logger.info("Maximum size in simple instances is %s sequences.", max([len(x) for x in simple_list]) if simple_list else "0")
     logger.info("Starting with simple problem instances.")
     # Straight forward processing each problem in a process
-    with Pool(processes=cpu_count()) as pool:
+    with Pool(processes=2) as pool:
         # We sort the instances by lentth so that the processes running in parallel
         # take around the same amount of time to finish. Otherwise we often end up
         # with one process taking much longer than the others, thus stalling the whole process.
-        simpel_list.sort(key=lambda x: len(x))
-        for i in range(0, len(simpel_list), cpu_count()):
+        simple_list.sort(key=lambda x: len(x))
+        simple_parallel_count = 1000 * cpu_count() 
+        for i in range(0, len(simple_list), simple_parallel_count):
             # This a a trade off, between memory and speed
             # With more data we easily run out of memory/ into caching stuff on disk
             # Thus we limit the number of data we process here to cpu_count()
+            # As we got a lot of very easy instances, its better to use a multiple of cpu_count()
+            # To avoid stalling to to the frequent disk access.
             all_results = [] # Saves tuples of sequences
-            instances  = simpel_list[i:i + cpu_count()]
+            instances  = simple_list[i:i + simple_parallel_count]
             for instance in instances:
                 sequences = []
                 for i in range(0, len(instance), batch_size):
@@ -263,13 +253,13 @@ def purge_duplicates_multithreading_2(db_handle: sqlite3.Connection,
                 all_results.append(sequences)
 
             #with Pool(processes=cpu_count()) as pool:
-            sequences = pool.map(_mark_duplicates, all_results)
+            results = pool.map(_mark_duplicates, all_results)
 
-            for result in sequences:
+            for result in results:
                 parameters.extend(result)
 
             # Commit and clear parameters
-            logging.info("Writing batch of simple instances into db...")
+            #logging.info("Writing batch of simple instances into db...")
             cursor.executemany(command, parameters)
             db_handle.commit()
             parameters = []
@@ -279,9 +269,10 @@ def purge_duplicates_multithreading_2(db_handle: sqlite3.Connection,
         logger.info("Starting with hard problem instances.")
         # Processing each problem on their own in multiple processes,
         # combining the reult at the end.
-        for instance in hard_list:
-
+        for i, instance in enumerate(hard_list):
+            logger.info("Processing hard instance %s of %s.", i + 1, len(hard_list))
             # Fetch all sequences for this instance
+            post_instance = []
             sequences = []
             for i in range(0, len(instance), batch_size):
                 batch = instance[i:i + batch_size]
@@ -295,55 +286,70 @@ def purge_duplicates_multithreading_2(db_handle: sqlite3.Connection,
 
             # Preprocessing data: Get rid of gaps and Ns, sort by length
             sequences = [(specimenid, nuc_raw.strip(STRIP_CHARS).replace('-', '')) for specimenid, nuc_raw in sequences]
-            sequences.sort(key=lambda x: len(x[1]), reverse=True)
 
-            # Split data into chunks of at most length hard_barrier for processing
-            #chunks = [sequences[i:i + hard_barrier] for i in range(0, len(sequences), hard_barrier)]
-            chunks = [sequences[i:i + subproblem_size] for i in range(0, len(sequences), subproblem_size)]
-            results = pool.map(_mark_duplicates_presorted, chunks)
 
-            uniques = []
-            parameters = []
-            for result in results:
-                uniques.append(result[0]) # Uniques, we need to further process
-                parameters.extend(result[1]) # Duplicates, we can write directly to db
+            chunks = [1,2] # This is a dummy value to start the loop
+            post_prcosess = False
+            while len(chunks) > 1:
+                # We got two break conditions:
+                # 1. Only one chunk is left:
+                #    Number of unique sequences is at most subproblem_size
+                # 2. Two or more chunks left but no duplicates are found in any of them.
+                #    Number or unique sequences might be greater than subproblem_size
+                sequences.sort(key=lambda x: len(x[1]), reverse=True)
 
-            cursor.executemany(command, parameters)
-            db_handle.commit()
+                # Split data into chunks of at most length hard_barrier for processing
+                #chunks = [sequences[i:i + hard_barrier] for i in range(0, len(sequences), hard_barrier)]
+                chunks = [sequences[i:i + subproblem_size] for i in range(0, len(sequences), subproblem_size)]
+                results = pool.map(_mark_duplicates_presorted, chunks)
 
-            # helper = uniques[-1]
-            # final_params = []
-            # for i in range(len(uniques) - 2, -1, -1):
-            #     helper.extend(uniques[i])
-            #     helper.sort(key=lambda x: len(x[1]), reverse=True) 
-            #     #= sorted(uniques[i], key=lambda x: len(x[1]), reverse=True)
-            #     helper, parameters, final_params = _mark_duplicates_presorted(helper)
-
-            #     # Directly write duplicates to db
-            #     cursor.executemany(command, parameters)
-            #     db_handle.commit()
-
-            # # Write final results to db
-            # cursor.executemany(command, final_params)
-            # db_handle.commit()
-
-            final_params = []
-            while len(uniques) > 1:
-                # Create pairs:
-                pairs = [(uniques[i], uniques[i - 1]) for i in range(len(uniques) - 1, 0, -2)]
-
-                if len(uniques) % 2 == 1:
-                    # Appand first element to new unique list, if uneven number of elements
-                    uniques = [uniques[0]]
-                else:
-                    uniques = []
-
-                # Process pairs
-                results = pool.map(_combine_mark_duplicates_presorted, pairs)
+                sequences = []
+                parameters = []
+                final_params = []
                 for result in results:
-                    uniques.append(result[0])
-                    parameters.extend(result[1])
-                    final_params = result[2]
+                    sequences.extend(result[0]) # Uniques, we need to further process
+                    parameters.extend(result[1]) # Duplicates, we can write directly to db
+                    final_params.extend(result[2]) # Final results, we need to write to db at the end
+
+                if len(parameters) > 0:
+                    cursor.executemany(command, parameters)
+                    db_handle.commit()
+                else:
+                    # No more duplicates found.
+                    post_prcosess = True
+                    sequences.sort(key=lambda x: len(x[1]), reverse=True)
+                    post_instance = [sequences[i:i + subproblem_size] for i in range(0, len(sequences), subproblem_size)]
+                    break
+
+            
+            if post_prcosess:
+                # This is the worst case scenario where we need to process
+                # a (mostly) huge amount of data as a single instance in order to guarantee
+                # that we do not miss any duplicates.
+                # Keep in mind that we got multiple chunks left here, without duplicaties 
+                # in them. Thus we need to process them all together. to make sure there
+                # are no duplicates between them.
+                #
+
+
+                final_params = []
+                parameters = []
+                while len(post_instance) > 1:
+                    # Create pairs:
+                    pairs = [(post_instance[i], post_instance[i - 1]) for i in range(len(post_instance) - 1, 0, -2)]
+
+                    if len(post_instance) % 2 == 1:
+                        # Appand first element to new unique list, if uneven number of elements
+                        post_instance = [post_instance[0]]
+                    else:
+                        post_instance = []
+
+                    # Process pairs
+                    results = pool.map(_combine_mark_duplicates_presorted, pairs)
+                    for result in results:
+                        post_instance.append(result[0])
+                        parameters.extend(result[1])
+                        final_params = result[2]
 
                 cursor.executemany(command, parameters)
                 db_handle.commit()
@@ -351,7 +357,6 @@ def purge_duplicates_multithreading_2(db_handle: sqlite3.Connection,
             # Write final results to db
             cursor.executemany(command, final_params)
             db_handle.commit()
-
 
         logger.info("Finished with hard problem instances.")
 

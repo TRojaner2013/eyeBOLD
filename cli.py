@@ -112,6 +112,7 @@ def _update_handle(db_file: str, loc_db_file: str, marker: str,
     # Connect to database
     try:
         my_db = EyeBoldDatabase(db_file, marker, loc_db_file)
+        my_db.update(tsv_file, dtpkg_file)
     except FileNotFoundError:
         logging.critical("Unable to open database %s." \
                          "File does not exists.", db_file)

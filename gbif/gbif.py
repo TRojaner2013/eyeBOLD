@@ -135,6 +135,7 @@ def query_name_backbone_b2t(query: Dict, retries: int=3) -> GbifName:
         index_list.append(BitIndex.NAME_CHECKED)
         index_list.append(BitIndex.NAME_FAILED)
         new_data.insert_dict['checks'] = ChecksManager.generate_mask(index_list)
+        new_data.insert_dict['identification_rank'] = 'Failed'
         return new_data
 
     index_list = [BitIndex.from_string(query_rank)]
@@ -145,6 +146,7 @@ def query_name_backbone_b2t(query: Dict, retries: int=3) -> GbifName:
         # With species names and higher ranks there are a few cases where we 
         # get a match and keep the species name but set species flag.
         index_list.append(BitIndex.NAME_CHECKED)
+        new_data.insert_dict['identification_rank'] = match_rank.lower()
 
         #ToDo: Need to check for cf. f. in name -- why?
 
@@ -159,7 +161,8 @@ def query_name_backbone_b2t(query: Dict, retries: int=3) -> GbifName:
             index_list.remove(BitIndex.from_string(query_rank))
 
             current_rank = TAXONOMY_TO_INT['subspecies']
-            end_rank = TAXONOMY_TO_INT[match_rank.lower()]
+            end_rank = TAXONOMY_TO_INT.get(match_rank.lower(), TAXONOMY_TO_INT['kingdom'])
+            new_data.insert_dict['identification_rank'] = INT_TO_TAXONOMY[end_rank]
             while  current_rank > end_rank:
                 # Remove all ranks above match rank
                 try:
@@ -168,6 +171,7 @@ def query_name_backbone_b2t(query: Dict, retries: int=3) -> GbifName:
                     pass
                 finally:
                     current_rank = current_rank-1
+
 
         new_data.insert_dict['checks'] = ChecksManager.generate_mask(index_list)
         new_data.insert_dict['gbif_key'] = result.get('usageKey', None)
@@ -208,6 +212,7 @@ def query_name_backbone_b2t(query: Dict, retries: int=3) -> GbifName:
             # remove these entries.
             # ToDo: Fix-me (Discovered 30-10-2024)
             end_rank = TAXONOMY_TO_INT.get(match_rank.lower(), TAXONOMY_TO_INT['kingdom'])
+            new_data.insert_dict['identification_rank'] = INT_TO_TAXONOMY[end_rank]
             while  current_rank > end_rank:
                 try:
                     index_list.remove(BitIndex.from_string(INT_TO_TAXONOMY[current_rank]))

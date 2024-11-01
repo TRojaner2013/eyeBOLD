@@ -6,10 +6,12 @@ import logging
 from typing import Dict, Tuple, List, Any
 
 from sqlite.db_layout import CreateCommands
-from sqlite.parser import get_data_layout, get_create_command, TsvParser
+from sqlite.parser import get_data_layout, get_create_command, TsvParser, TsvUpdateParser
 from common.helper import file_exist
 
 logger = logging.getLogger(__name__)
+
+INSERT_BATCH_SIZE = 10000
 
 # ToDo: Create helper module for this:
 def execute_batches(db_handle:sqlite3.Connection,
@@ -120,12 +122,6 @@ def create_database(db_handle: sqlite3.Connection,
     if not file_exist(datapackage):
         logger.critical("Input datapackage file %s does not exists.", datapackage)
         raise ValueError(f"File {datapackage} does not exists.")
-
-    # We need to create the database in the following order:
-    # 1. input database
-    # 2. GBIF data
-    # 3. Taxonomy data
-    # 4. Specimen data
 
     layout, parser_dict = get_data_layout(datapackage)
     if layout is False:
@@ -281,3 +277,74 @@ def create_in_tables(db_handle: sqlite3.Connection,
     finally:
         # Close the cursor
         cursor.close()
+
+
+def insert_updates(db_file: str, tsv_file: str, datapackage: str, marker: str) -> Tuple[List[int], List[Tuple[int,int]]]:
+    """ Creates a new, remporyary table to store potential updates.
+
+        Args:
+            db_file (str): Path to database file.
+            tsv_file (str): Path to TSV file.
+            datapackage (str): Path to datapackage file.
+
+        Returns:
+            List of specimen IDs that have been updated.
+    """
+
+    if not file_exist(tsv_file):
+        logger.critical("Input tsv file %s does not exists.", tsv_file)
+        raise FileNotFoundError(f"File {tsv_file} does not exists.")
+
+    if not file_exist(datapackage):
+        logger.critical("Input datapackage file %s does not exists.", datapackage)
+        raise FileNotFoundError(f"File {datapackage} does not exists.")
+
+    logger.info("Starting to build update table database...")
+
+    # Open connection, and parse datapackage file to check laycout compadiablity
+    db_handle = sqlite3.connect(db_file)
+    cursor = db_handle.cursor()
+
+    layout, parser_dict = get_data_layout(datapackage)
+    if layout is False:
+        logger.critical('Unexpected problems reading datapackage file...')
+        raise ValueError('Unable to process datapackage file.')
+
+    logger.info("Inserting updated infos with a batch size of %s.", INSERT_BATCH_SIZE)
+
+    # Read datapackage file and insert tsv_data:
+    possible_updates = TsvUpdateParser(tsv_file, marker, parser_dict)
+
+    new_ids = []
+    updated_ids = []
+
+    table_batch = []
+    check_cmd = "SELECT gbif_key, hash FROM specimen WHERE specimenid = ?"
+    #ToDo: Change this whole process to work on larger batches.
+    for id, hash, row in possible_updates:
+
+        cursor.execute(check_cmd, (id,))
+        result = cursor.fetchone()
+
+        if result:
+            if hash != result[1]:
+                updated_ids.append([id, result[0]])
+            else:
+                continue
+        else:
+            new_ids.append(id)
+
+        table_batch.append(row)
+
+        if len(table_batch) == INSERT_BATCH_SIZE:
+            logger.info("Inserting batch into database.")
+            _insert_batch(db_handle, "specimen", table_batch)
+
+    if table_batch:
+        logger.info("Inserting last batch into specimen.")
+        _insert_batch(db_handle, "specimen", table_batch)
+
+    logger.info("Successfully updated database entries...")
+    logger.info("New entries: %s", len(new_ids))
+    logger.info("Updated entries: %s", len(updated_ids))
+    return (new_ids, updated_ids)
