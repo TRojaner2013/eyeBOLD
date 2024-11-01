@@ -75,7 +75,7 @@ This example creates the database my_db.db with all COI-5P sequences, my_loc_db.
 The downloaded files from above serve as input.
 
 ```
-python main my_db.db my_loc_db.db COI-5P build BOLD_PUBLIC.*.tsv BOLD_PUBLIC.*.datapackage.json
+python main.py my_db.db my_loc_db.db COI-5P build BOLD_PUBLIC.*.tsv BOLD_PUBLIC.*.datapackage.json
 ```
 
 
