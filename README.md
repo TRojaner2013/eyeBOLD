@@ -11,9 +11,75 @@
 - DISKSPACE!! (We are talking about a looooot like idk 200 - 300 GB)
 - Time (
 
-# Usage
+# Setup
 
-# Building the database
+In order to use eyeBOLD we need to set up some things in advance.
+
+## Venv
+
+Set up a venv for this project and run the following command to install all requirements.
+
+```
+pip install -r requirements.txt
+```
+
+Note: This insalls two packages which differ from their original packages: kgcpy, pygbif.
+      It is mandatory to install the adapted kgcpy version.
+      The adapted pygbif version introduces https and skips e-mail notifications. If it is not installed GBIF_EMAIL must be set as environmental variable.
+
+## Environmental Variables
+
+Make sure to export the following environmental variables:
+
+GBIF_USER="<your_username>"
+
+GBIF_PWD="<your_password>"
+
+(GBIF_EMAIL="<your_email>")
+
+
+## Download and Unpack BOLD
+
+Visit the [BOLD-Website](https://bench.boldsystems.org/index.php/datapackages/Latest) and download the data package.
+The download is only open to registered users.
+
+Unpack the data package. Both files contained are needed to build the database.
+
+- BOLD_Public.*.tsv
+- BOLD_Public.*.datapackage.json
+
+Both files serve as input for our tool. The TSV-File provides the data, the JSON-File describes the dataformat and is parsed.
+
+
+## Install Rust Compiler
+
+Visit the [Rust-Website](https://www.rust-lang.org/tools/install) and install the compiler.
+
+## Build RaxTax
+
+With the Rust compiler installed, we can build RaxTax.
+We provide a [script](/setup_tools/build_raxtax.py) to do this. The executable is automatically copied to the dictionary where it's needed.
+
+```
+python build_raxtax.py
+```
+
+Note: This process is only tested on Windows. **Known Bug: As RaxTax changed, the checksums for the testfiles are different. The script will say that the process failed.**
+
+## Building the Database
+As things are set up, we are ready to build the enhanced BOLD-Database.
+
+Run the following command with your own arguments to build the database from scratch.
+**Warining: The process takes multiple days for the complete BOLD-Database.**
+This example creates the database my_db.db with all COI-5P sequences, my_loc_db.db containing location information.
+The downloaded files from above serve as input.
+
+```
+python main my_db.db my_loc_db.db COI-5P build BOLD_PUBLIC.*.tsv BOLD_PUBLIC.*.datapackage.json
+```
+
+
+# Usage
 
 The first step is to build the database with data provided by BOLD and GBIF.
 Figure x illustrates the process.
