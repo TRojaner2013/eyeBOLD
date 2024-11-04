@@ -189,6 +189,7 @@ class EyeBoldDatabase():
 
         #duplicates = set(duplicates)
         #Presort instances list.
+        logger.info("Starting sorting all instances at %s", datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
         duplicates.sort(key=lambda x: len(x))
         trivial_instances = [x for x in duplicates if len(x) <= const.TRIVIAL_SIZE]
         larger_instances = [x for x in duplicates if len(x) > const.TRIVIAL_SIZE]
@@ -235,6 +236,7 @@ class EyeBoldDatabase():
             #ToDo: Maybee return true here.
             return False, f"Database at {self._db_file} is a valid database."
 
+        logger.info("Starting database creation process at %s", datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
         try:
             create_db_file(self._db_file)
             self._db_handle = open_db_file(self._db_file)
@@ -253,6 +255,7 @@ class EyeBoldDatabase():
             done = create_database(self._db_handle, tsv_file,
                            datapackage, self._marker_code)
             if done:
+                logger.info("Finished database creation process at %s", datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
                 return True, "Succesfully created database!"
         except ValueError:
             logger.error("Unable to open %s  or %s.", datapackage, tsv_file)
@@ -288,7 +291,7 @@ class EyeBoldDatabase():
                      self._db_file)
 
         # 1. Harmonize names
-        logger.info("Starting taxonomic harmonization process...")
+        logger.info("Starting taxonomic harmonization process at %s", datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
 
 
         helper = []
@@ -315,7 +318,7 @@ class EyeBoldDatabase():
                 logger.info("Executing %s sql commands...", len(cmd_batch))
                 execute_batches(self._db_handle, cmd_batch)
 
-        logger.info("Finished taxonomic harmonization process...")
+        logger.info("Finished taxonomic harmonization process at %s", datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
 
         # ToDo: Make this a function in next release
         # Get all unique gbif_keys representing each one distict taxon
@@ -373,11 +376,14 @@ class EyeBoldDatabase():
 
         # Find misclassified species with raxtax
         # Note: This process is time consuming
+        logger.info("Starting raxtax process at %s", datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
         bad_entries = self._invoke_raxtax()
 
         # Update the database with the results from the raxtax process
         self._update_raxtax(bad_entries)
+        logger.info("Finished raxtax process at %s", datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
 
+        logger.info("Flagging results in database at %s", datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
         # Set review flag to false for all curated entries
         # Note: This enables us to check failed name lookups again
         command = """UPDATE specimen SET review = False WHERE (checks & ?) = 2;"""
@@ -390,7 +396,7 @@ class EyeBoldDatabase():
         cursor.execute(command, (1 << BitIndex.SELECTED.value,))
         self._db_handle.commit()
 
-        logger.info("Finished curating process")
+        logger.info("Finished curating process at %s", datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
 
     def _update_raxtax(self, bad_entries: List) -> None:
         """ Updates the database with the results from the raxtax process """
