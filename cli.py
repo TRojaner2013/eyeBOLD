@@ -343,7 +343,7 @@ def cli_main(*args) -> None:
             sys.exit(0)
     elif args.sub == 'build-location-db':
         logger.debug("Invoking build-location-db handle.")
-        if _build_location_db_handle(db_file, loc_db_file, marker, args.s__batch_size):
+        if _build_location_db_handle(db_file, loc_db_file, marker, args.batch_size):
             _log_success()
             sys.exit(0)
     elif args.sub == 'review':
