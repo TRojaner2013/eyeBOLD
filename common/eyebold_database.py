@@ -1,24 +1,23 @@
-""" Module that defines the database object """
+""" Module implementing database handler"""
 
 from datetime import datetime
 import logging
 import sqlite3
-import sys
 import csv
-from typing import Any, Tuple, Dict, Set, List
+from typing import Tuple, Dict, Set, List
 from enum import Enum
 from collections import defaultdict
-from multiprocessing import Process, Manager
 
+from sqlite.builder import open_db_file, create_database, create_db_file
+from sqlite.builder import execute_batches, insert_updates
+from sqlite.parser import DB_MAP
+from sqlite.Bitvector import BitIndex
+from tools.harmonizer import harmonize_b2t, raxtax_entry
+from tools.sanitizer import purge_duplicates, disclose_hybrids, purge_duplicates_multithreading_2
+from tools.tracker import validate_location
 from common.helper import file_exist
 from common.location_database import LocationDatabase
 import common.constants as const
-from sqlite.builder import open_db_file, create_database, create_db_file, execute_batches, insert_updates
-from sqlite.parser import DB_MAP
-from sqlite.Bitvector import BitIndex
-from tools.harmonizer import harmonize, harmonize_b2t, raxtax_entry
-from tools.sanitizer import purge_duplicates, disclose_hybrids, purge_duplicates_multithreading, purge_duplicates_multithreading_2
-from tools.tracker import validate_location
 
 logger = logging.getLogger(__name__)
 
@@ -37,11 +36,14 @@ class ExportFormats(Enum):
         # Map the normalized string to the corresponding Enum value
         if normalized_str == 'FASTA':
             return cls.FASTA
-        elif normalized_str == 'RAXTAX':
+
+        if normalized_str == 'RAXTAX':
             return cls.RAXTAX
-        elif normalized_str == 'TSV':
+
+        if normalized_str == 'TSV':
             return cls.TSV
-        elif normalized_str == 'CSV':
+
+        if normalized_str == 'CSV':
             return cls.CSV
 
         raise ValueError(f"Unknown format: {format_str}")
@@ -111,7 +113,8 @@ class EyeBoldDatabase():
 
 
         # Find all entries that are changed and new
-        new_ids, changed_ids =  insert_updates(self._db_file, tsv_file, datapackage, self._marker_code)
+        new_ids, changed_ids =  insert_updates(self._db_file, tsv_file,
+                                               datapackage, self._marker_code)
         all_ids = [values[0] for values in changed_ids]
         all_ids.extend(new_ids)
 
@@ -123,7 +126,9 @@ class EyeBoldDatabase():
         # 1. Check names for all new/updated entries
         logger.info("Starting taxonomic harmonization process...")
 
-
+        #ToDo: Check with curate function which functions to create,
+        #      then update this procedure accordingly.
+        cursor = self._db_handle.cursor()
         helper = []
         levels = ['kingdom', 'phylum', 'class', 'order', 'family', 'genus', 'species', 'subspecies']
         levels.reverse()
@@ -139,15 +144,14 @@ class EyeBoldDatabase():
                 command_tuples = datum.to_sql_command()
                 if command_tuples:
                     cmd_batch.extend(command_tuples)
-    
+
             if cmd_batch:
                 logger.info("Executing %s sql commands...", len(cmd_batch))
-                execute_batches(self._db_handle, cmd_batch)
+                cursor.execute_batches(self._db_handle, cmd_batch)
 
         logger.info("Finished taxonomic harmonization process...")
 
-        # Find the taxonomy_ids for all updated entries.
-
+        # Find the taxonomy_keys for all updated entries.
         gbif_keys = set()
         for i in range(0, len(all_ids), const.SQL_SAVE_NUM_VARS):
             chunk = all_ids[i:i + const.SQL_SAVE_NUM_VARS]
@@ -157,13 +161,12 @@ class EyeBoldDatabase():
             for row in cursor.fetchall():
                 gbif_keys.add(row[0])
 
-
         # Remove None and duplicate keys
         gbif_keys.discard(None)
         if len(gbif_keys) == 0:
             # Sanity check, if we end up here something went wrong...
             logger.error("Stopping update process: No gbif_keys found for updated entries.")
-            logger.error(" PLEASE CONTACT DEVELOPER OR OPEN AN ISSUE ON GITHUB.")
+            logger.error("PLEASE CONTACT DEVELOPER OR OPEN AN ISSUE ON GITHUB.")
             return
 
         save_keys = list(gbif_keys)
@@ -186,24 +189,29 @@ class EyeBoldDatabase():
                 specimen_ids = list(map(int, row[0].split(',')))
                 duplicates.append(specimen_ids)
 
-
-        #duplicates = set(duplicates)
         #Presort instances list.
-        logger.info("Starting sorting all instances at %s", datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+        logger.info("Starting sorting all instances at %s",
+                    datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+
         duplicates.sort(key=lambda x: len(x))
         trivial_instances = [x for x in duplicates if len(x) <= const.TRIVIAL_SIZE]
         larger_instances = [x for x in duplicates if len(x) > const.TRIVIAL_SIZE]
 
-
         logger.info("Purging duplicates from database...")
-        logger.info("Starting trivial instances at %s", datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+        logger.info("Starting trivial instances at %s",
+                    datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+
         purge_duplicates(self._db_handle, trivial_instances)
-        logger.info("Starting larger instances at %s", datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+        logger.info("Starting larger instances at %s",
+                    datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+
         purge_duplicates_multithreading_2(self._db_handle, larger_instances)
-        logger.info("Finished larger instances at %s", datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+        logger.info("Finished larger instances at %s",
+                    datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
 
         # Flag hybrid species (assuming they are marked with an 'x' in the species field)
         logger.info("Flagging hybrid species in database")
+        #ToDo: add update flag to check only new entries...
         disclose_hybrids(self._db_handle)
 
         # Set include flag in bitvector for entries that passed all checks untill now
@@ -224,19 +232,28 @@ class EyeBoldDatabase():
         self._db_handle.commit()
 
         command = """UPDATE specimen SET include = True WHERE (checks & ?) = 1;"""
-        cursor = self._db_handle.cursor()
         cursor.execute(command, (1 << BitIndex.SELECTED.value,))
         self._db_handle.commit()
 
         logger.info("Finished updating process")
 
+    #ToDo: Think about better return type for this function...
     def create(self, tsv_file: str, datapackage: str) -> Tuple[bool, str]:
-        """Crates a new valid database from scratch"""
+        """ Creates a new database
+
+            Args:
+                - tsv_file (str): Path to file containing data
+                - datapackage (str): Path to datapackage file describing data
+
+            Returns:
+                Tuple[bool, str], True on success, False and error message on error.
+        """
         if self._valid_db:
-            #ToDo: Maybee return true here.
             return False, f"Database at {self._db_file} is a valid database."
 
-        logger.info("Starting database creation process at %s", datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+        logger.info("Starting database creation process at %s",
+                    datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+
         try:
             create_db_file(self._db_file)
             self._db_handle = open_db_file(self._db_file)
@@ -246,29 +263,36 @@ class EyeBoldDatabase():
         except FileNotFoundError:
             logger.error("Unable to find database %s.", self._db_file)
             return False, f"Unable to find database file at {self._db_file}."
-        except IOError as e:
+        except IOError as err:
             logger.critical("Unexpected IOError on file %s\n%s.",
-                            self._db_file, e)
+                            self._db_file, err)
             return False, "IOError on database file."
 
         try:
             done = create_database(self._db_handle, tsv_file,
                            datapackage, self._marker_code)
             if done:
-                logger.info("Finished database creation process at %s", datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+                logger.info("Finished database creation process at %s",
+                            datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+
                 return True, "Succesfully created database!"
         except ValueError:
             logger.error("Unable to open %s  or %s.", datapackage, tsv_file)
             return False, f"Unable to open {datapackage} or {tsv_file}."
-        except sqlite3.Error as e:
-            logger.critical("Unexpected database error: {e}")
+        except sqlite3.Error as err:
+            logger.critical("Unexpected database error: %s", err)
             return False, "Unable to perform actions on database."
 
         logger.error("Unable to create database %s.", self._db_file)
         return False, "Unable to create Database."
 
+    #ToDo: Create a constant for batch_size
     def invoke_tracker(self, batch_size: int=2000) -> None:
-        """ Invokes raxtax """
+        """ Invokes tracker feature to build location database
+
+            Args:
+                - batch_size: Number of species to download at once
+        """
 
         if not self._valid_db:
             raise AttributeError
@@ -276,29 +300,38 @@ class EyeBoldDatabase():
         logger.info("Starting tracker process...")
         validate_location(self._db_file, self._loc_db_file, batch_size)
 
-    def _invoke_raxtax(self,) -> List:
-        """ Invokes tracker """
+    def _invoke_raxtax(self) -> List:
+        """ Invokes raxtax
+
+            Returns:
+                List of specimeni ids that are misclassified.
+        """
+        #ToDo: Perfom only one export for first build, as files are identical.
         logger.info("Starting raxtax process...")
         self._export_raxtax_db_file(const.RAXTAX_DB_IN)
         self._export_raxtax_query_file(const.RAXTAX_QUERY_IN)
         return raxtax_entry()
 
     def curate(self) -> None:
-        """ Curates data in database. This process consumes a lot of time."""
-        # Find all elements flagged checkable in database.
+        """ Starts curation process of database
+
+            Note:
+                This process runs for a long time (~2 days)
+        """
 
         logger.info("Starting curating process for database %s",
                      self._db_file)
 
         # 1. Harmonize names
-        logger.info("Starting taxonomic harmonization process at %s", datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+        logger.info("Starting taxonomic harmonization process at %s",
+                    datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
 
-
+        #ToDo Q1: Make this a function
         helper = []
-        levels = ['kingdom', 'phylum', 'class', 'order', 'family', 'genus', 'species', 'subspecies']
+        #ToDo: Assign this to a constant...
+        levels = ['kingdom', 'phylum', 'class', 'order',
+                  'family', 'genus', 'species', 'subspecies']
         levels.reverse()
-
-        #duplicates = set()
 
         for level in levels:
             helper.append(self.get_unsanatized_taxonomy_b2t(level))
@@ -312,16 +345,15 @@ class EyeBoldDatabase():
                 if command_tuples:
                     cmd_batch.extend(command_tuples)
 
-                #duplicates.add(tuple(datum.specimenids))
-    
             if cmd_batch:
                 logger.info("Executing %s sql commands...", len(cmd_batch))
                 execute_batches(self._db_handle, cmd_batch)
 
-        logger.info("Finished taxonomic harmonization process at %s", datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+        logger.info("Finished taxonomic harmonization process at %s",
+                    datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
 
-        # ToDo: Make this a function in next release
-        # Get all unique gbif_keys representing each one distict taxon
+        # ToDo Q1: Make this part a function
+        # Get all unique gbif_keys, each representing one distict taxon
         cursor = self._db_handle.cursor()
         cmd = """SELECT DISTINCT gbif_key FROM specimen;"""
         cursor.execute(cmd)
@@ -331,7 +363,7 @@ class EyeBoldDatabase():
             # Sanity check, if we end up here something went wrong...
             logger.error("No gbif_keys found in database.")
             logger.error("Please check input data or conatct developer.")
-            return(False, "No gbif_keys found in database.")
+            return
 
        # 2. Get list of duplicates
         duplicates = []
@@ -346,20 +378,29 @@ class EyeBoldDatabase():
                 specimen_ids = list(map(int, row[0].split(',')))
                 duplicates.append(specimen_ids)
 
-        # Check dublicates we just extracted...
+        # Check duplicates we just extracted...
         duplicates.sort(key=lambda x: len(x))
         tiny_instances = [x for x in duplicates if len(x) < const.TRIVIAL_SIZE]
         larger_instances = [x for x in duplicates if len(x) >= const.TRIVIAL_SIZE]
 
         logger.info("Purging duplicates from database...")
+
         if tiny_instances:
-            logger.info("Starting with %s tiny instances at %s", len(tiny_instances), datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+            logger.info("Starting with %s tiny instances at %s", len(tiny_instances),
+                        datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+
             purge_duplicates(self._db_handle, tiny_instances)
-            logger.info("Finished trivial instances at %s", datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+            logger.info("Finished trivial instances at %s",
+                        datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+
         if larger_instances:
-            logger.info("Starting %s larger instances at %s", len(larger_instances), datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+            logger.info("Starting %s larger instances at %s",
+                        len(larger_instances), datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+
             purge_duplicates_multithreading_2(self._db_handle, larger_instances)
-            logger.info("Finished larger instances at %s", datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+            logger.info("Finished larger instances at %s",
+                        datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+
         logger.info("Purging duplicates finished...")
 
         # Flag hybrid species (assuming they are marked with an 'x' in the species field)
@@ -375,15 +416,19 @@ class EyeBoldDatabase():
         self._db_handle.commit()
 
         # Find misclassified species with raxtax
-        # Note: This process is time consuming
-        logger.info("Starting raxtax process at %s", datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+        logger.info("Starting raxtax process at %s",
+                    datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+
         bad_entries = self._invoke_raxtax()
 
-        # Update the database with the results from the raxtax process
+        # Update the database with the results from raxtax
         self._update_raxtax(bad_entries)
-        logger.info("Finished raxtax process at %s", datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+        logger.info("Finished raxtax process at %s",
+                    datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
 
-        logger.info("Flagging results in database at %s", datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+        logger.info("Flagging results in database at %s",
+                    datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
+
         # Set review flag to false for all curated entries
         # Note: This enables us to check failed name lookups again
         command = """UPDATE specimen SET review = False WHERE (checks & ?) = 2;"""
@@ -399,7 +444,11 @@ class EyeBoldDatabase():
         logger.info("Finished curating process at %s", datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
 
     def _update_raxtax(self, bad_entries: List) -> None:
-        """ Updates the database with the results from the raxtax process """
+        """ Updates the database with the results from the raxtax process
+
+            Args:
+                - bad_entries (List): List of specimen ids marked as misclassified
+        """
 
         command = f"""UPDATE specimen SET checks = (checks & ~1) | (1 << {BitIndex.BAD_CLASSIFICATION.value}) WHERE specimenid=?;"""
 
@@ -409,6 +458,7 @@ class EyeBoldDatabase():
         self._db_handle.commit()
 
     def close(self) -> None:
+        """ Closes database"""
 
         if not self._valid_db:
             raise AttributeError
@@ -419,7 +469,15 @@ class EyeBoldDatabase():
         self._db_handle.close()
 
     def _query_database(self, query: str, params: Tuple[str]|None=None) -> List:
-        """Returns queries from database"""
+        """ Queries database and returns result
+
+            Args:
+                - query (str): SQL query
+                - params (Tuple[str]): Tuple of parameter for query, if any
+
+            Returns:
+                List of all selected rows from database
+        """
 
         cur = self._db_handle.cursor()
         if params is not None:
@@ -485,7 +543,7 @@ class EyeBoldDatabase():
             -db_handle: Database connection handle
 
         Returns:
-            List with taxonomy data of all unsantized rows
+            Dictionary with taxonomy data of all unsantized rows
         """
 
         query = (f"SELECT {DB_MAP['kingdom']}, {DB_MAP['phylum']},"
@@ -523,7 +581,11 @@ class EyeBoldDatabase():
                 'genus': genera, 'species': species, 'subspecies': subspecies}
 
     def _export_raxtax_db_file(self, out_file: str) -> None:
-        """ Exports database file for raxtax """
+        """ Exports database file for raxtax
+
+            Args:
+                out_file (str): Path where export is saved
+        """
         cursor = self._db_handle.cursor()
 
         query = (f"SELECT checks, specimenid, nuc_san,  {DB_MAP['phylum']}, "
@@ -534,15 +596,19 @@ class EyeBoldDatabase():
         cursor.execute(query)
         rows = cursor.fetchall()
 
-        header = ["checks", "specimenid", "nuc_san", "phylum", "class", "order", "family", "genus", "species"]
+        #header = ["checks", "specimenid", "nuc_san", "phylum",
+        #           "class", "order", "family", "genus", "species"]
 
         self._export_fasta_raxtax(rows, out_file)
 
     def _export_raxtax_query_file(self, out_file: str) -> None:
-        """ Exports query file for raxtax """
+        """ Exports query file for raxtax
+
+            Args:
+                out_file (str): Path where export is saved
+        """
         cursor = self._db_handle.cursor()
 
-        # Use better query here that has better checks argument!
         query = (f"SELECT checks, specimenid, nuc_san,  {DB_MAP['phylum']}, "
                  f"{DB_MAP['class']}, {DB_MAP['order']}, {DB_MAP['family']}, "
                  f"{DB_MAP['genus']}, {DB_MAP['species'] }"
@@ -551,12 +617,18 @@ class EyeBoldDatabase():
         cursor.execute(query)
         rows = cursor.fetchall()
 
-        header = ["checks", "specimenid", "nuc_san", "phylum", "class", "order", "family", "genus", "species"]
+        #header = ["checks", "specimenid", "nuc_san", "phylum",
+        #           "class", "order", "family", "genus", "species"]
 
         self._export_fasta_raxtax(rows, out_file)
 
-    def export(self, format: ExportFormats, out_file: str) -> None:
-        """ Exports selected data from databse into a file of provided format. """
+    def export(self, format_: ExportFormats, out_file: str) -> None:
+        """ Exports selected data from databse into a file of provided format
+
+            Args:
+                format_ (ExportFormat): Format of exported file
+                out-file (str): Path where export is saved
+        """
 
         cursor = self._db_handle.cursor()
 
@@ -568,50 +640,71 @@ class EyeBoldDatabase():
         cursor.execute(query)
         rows = cursor.fetchall()
 
-        header = ["checks", "specimenid", "nuc_san", "phylum", "class", "order", "family", "genus", "species"]
+        header = ["checks", "specimenid", "nuc_san", "phylum",
+                  "class", "order", "family", "genus", "species"]
 
-        if format == ExportFormats.FASTA:
+        if format_ == ExportFormats.FASTA:
             self._export_fasta(rows, out_file)
-        elif format == ExportFormats.RAXTAX:
+        elif format_ == ExportFormats.RAXTAX:
             self._export_fasta_raxtax(rows, out_file)
-        elif format == ExportFormats.TSV:
+        elif format_ == ExportFormats.TSV:
             self._export_csv(rows, out_file, '\t', header)
-        elif format == ExportFormats.CSV:
+        elif format_ == ExportFormats.CSV:
             self._export_csv(rows, out_file, ';', header)
         else:
-            raise ValueError(f"Invalid export format provided: {format}")
+            raise ValueError(f"Invalid export format provided: {format_}")
 
-    def query_export(self, query: str, out_file: str, format: ExportFormats):
+    def query_export(self, query: str, out_file: str, format_: ExportFormats):
         """ Executes a query and exports the data to out_file in the specified format
+
+            Args:
+                queryy (str): SQL Query
+                out_file (str): Path to exported file
+                format_ (ExportFormats): Fortmat of export
 
             Raises:
                 ValueError: If an invalid export format is provided
         """
         rows = self._query_database(query)
 
-        if format == ExportFormats.FASTA:
+        if format_ == ExportFormats.FASTA:
             self._export_fasta(rows, out_file)
-        elif format == ExportFormats.RAXTAX:
+        elif format_ == ExportFormats.RAXTAX:
             self._export_fasta_raxtax(rows, out_file)
-        elif format == ExportFormats.TSV:
+        elif format_ == ExportFormats.TSV:
             self._export_csv(rows, out_file, '\t')
-        elif format == ExportFormats.CSV:
+        elif format_ == ExportFormats.CSV:
             self._export_csv(rows, out_file, ';')
         else:
-            raise ValueError(f"Invalid export format provided: {format}")
+            raise ValueError(f"Invalid export format provided: {format_}")
 
     def query_print(self, query: str) -> None:
-        """ Executes a query and prints the results to the console """
+        """ Executes a query and prints the results to the console
+
+            Args:
+                - query (str): SQL query
+        """
         rows = self._query_database(query)
 
         for row in rows:
             print(row)
 
     def _export_fasta_raxtax(self, rows, out_file) -> None:
+        """ Exports data in raxtaxs fasta format
+
+            Note:
+                Any row must contain the values in the order below:
+                [checks, specimen-id, sequence, phylum, class, oder, family,
+                 genus, species]
+            Args:
+                rows (List): Rows to export
+                out_file (str): Path to exported file
+        
+        """
 
         with open(out_file, 'w', encoding="utf-8") as file:
             for row in rows:
-                checks, specimenid, nuc_raw, phylum, class_, order, family, genus, species = row
+                checks, specimenid, seq, phylum, class_, order, family, genus, species = row
 
                 tax_parts = []
                 # Works for earlier versions of raxtax.
@@ -628,6 +721,8 @@ class EyeBoldDatabase():
                 # if checks & (1 << BitIndex.INCL_SPECIES.value):
                 #     tax_parts.append(f"s:{species}")
 
+                # ToDo: Edit raxtax export query.
+                # ToDo: Remove character restriction once raxtax is fixedl.
                 valid_chars = {'A', 'G', 'C', 'T'}
                 if checks & (1 << BitIndex.INCL_PHYLUM.value):
                     tax_parts.append(f"{phylum.replace(' ', '_')}")
@@ -642,19 +737,36 @@ class EyeBoldDatabase():
                                     if checks & (1 << BitIndex.INCL_SPECIES.value):
                                         tax_parts.append(f"{species.replace(' ', '_')}")
                                         tax_string = ','.join(tax_parts)
-                                        if not set(nuc_raw).issubset(valid_chars):
+                                        if not set(seq).issubset(valid_chars):
                                             continue
-                                        raxtax_string = f">{specimenid};tax={tax_string};\n{nuc_raw}\n"
+                                        raxtax_string = f">{specimenid};tax={tax_string};\n{seq}\n"
                                         file.write(raxtax_string)
 
-    def _export_fasta(self, rows, out_file) -> None:
+    #ToDo: implement function
+    def _export_fasta(self, rows: List, out_file: str) -> None:
+        """ Exports data in fasta format
+        
+            Args:
+                - rows (List): Rows to export
+                - out_file: String to exported file
+            """
 
-        with open(out_file, 'w', encoding="utf-8") as file:
-            for row in rows:
-                checks, specimenid, nuc_raw, phylum, class_, order, family, genus, species = row
+        raise NotImplementedError
+        # with open(out_file, 'w', encoding="utf-8") as file:
+        #     for row in rows:
+        #         checks, specimenid, nuc_raw, phylum, class_, order, family, genus, species = row
 
-    def _export_csv(self, rows, out_file: str, delimiter: str, header: List=None) -> None:
-        """Exports the data to a CSV file with the specified delimiter."""
+
+    def _export_csv(self, rows: List[str], out_file: str, delimiter: str,
+                    header: List[str]=None) -> None:
+        """ Exports the data to a csv file with the specified delimiter
+
+            Args:
+                rows (List[str]): Rows to export
+                out_file (str): Path to file where export is saved
+                delimiter (str): Delimiter to use
+                header (List[str]): Headers for csv file
+        """
 
         with open(out_file, 'w', encoding="utf-8", newline='') as file:
             writer = csv.writer(file, delimiter=delimiter)

@@ -1,5 +1,5 @@
 """
-Module implementing helper files.
+Module implementing helper methods.
 """
 
 from  datetime import datetime
@@ -8,7 +8,7 @@ import os
 def file_exist(path: str) -> bool:
     """ Checks if file at path exists.
 
-        Arguments:
+        Args:
             path (str): Path to file
 
         Returns:
@@ -21,7 +21,14 @@ def file_exist(path: str) -> bool:
     return True
 
 def parse_date(value: str) -> str:
-    """ Parses dates in SQL usable string"""
+    """ Returns sting date/time form BOld to an SQL date string
+
+        Args:
+            - value(str): Date/Time string in BOLD Format
+
+        Returns:
+            Date in SQL formatted string. 'NULL' on error.
+    """
     if not value:
         return "NULL"
 
