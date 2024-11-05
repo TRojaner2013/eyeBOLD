@@ -1,42 +1,24 @@
 """Harmonizer module"""
 
 import csv
-import warnings
 import shutil
 import subprocess
 import logging
 import os
-import pandas as pd
-from collections import defaultdict
-
-from typing import Dict, Set, Tuple, List, Optional
+from typing import Dict, List, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass#, field
+from dataclasses import dataclass
+import pandas as pd
 
 
 import common.constants as const
-from gbif.gbif import query_name_backbone, name_backbone_stat, query_name_backbone_b2t
+from gbif.gbif import query_name_backbone_b2t
 from sqlite.parser import GbifName
 
 logger = logging.getLogger(__name__)
+
+#ToDo: Move to conatants
 WORKER_THREADS = 30
-
-def _harmonize_names(taxon_data: set, rank: str) -> List[GbifName]:
-    """Checks naming of taxons and returns matches as dictionary"""
-
-    warnings.warn("Function will be removed.", DeprecationWarning)
-    result = []
-
-    with ThreadPoolExecutor(max_workers=WORKER_THREADS) as thread_pool:
-
-        future_to_query = {thread_pool.submit(query_name_backbone, query, rank): query
-                           for query in taxon_data}
-
-        for future in as_completed(future_to_query):
-            #future_to_query[future]
-            result.append(future.result())
-
-    return result
 
 def _harmonize_names_b2t(taxon_data: List[Dict]) -> List[GbifName]:
     """Checks naming of taxons and returns matches as dictionary"""
@@ -49,39 +31,9 @@ def _harmonize_names_b2t(taxon_data: List[Dict]) -> List[GbifName]:
                            for query in taxon_data}
 
         for future in as_completed(future_to_query):
-            #query = future_to_query[future]
             result.append(future.result())
 
     return result
-
-def _harmonize_name_stats(taxon_data: set) -> List[
-                                                        Tuple[str, str, int, bool]]:
-    """Checks naming of taxons and returns matches as dictionary"""
-    # THIS FUNCTION IS FOR STATISTICS ONLY
-    warnings.warn("Function will be removed.", DeprecationWarning)
-
-    result = []
-
-    with ThreadPoolExecutor(max_workers=WORKER_THREADS) as thread_pool:
-
-        result = list(thread_pool.map(name_backbone_stat, taxon_data))
-
-    return result
-
-def harmonize(taxon_data: Set, rank:str) -> List[GbifName]:
-    """Harmonizes taxonomical data in passed databank
-
-    Arguments:
-        -db_handle: sqlite3 Connection handle to database
-
-    Returns:
-        True on success.
-    """
-
-    warnings.warn("Function will be removed.", DeprecationWarning)
-    harmonized_names = _harmonize_names(taxon_data, rank)
-
-    return harmonized_names
 
 def harmonize_b2t(taxon_data: List[Dict]) -> List[GbifName]:
     """Harmonizes taxonomical data in passed dictionary
@@ -96,27 +48,6 @@ def harmonize_b2t(taxon_data: List[Dict]) -> List[GbifName]:
     harmonized_names = _harmonize_names_b2t(taxon_data)
 
     return harmonized_names
-
-def harmonize_stats(taxon_data: Set, rank:str) -> None:
-    """Harmonizes taxonomical data in passed databank
-
-    Arguments:
-        -db_handle: sqlite3 Connection handle to database
-
-    Returns:
-        True on success.
-    """
-
-    warnings.warn("Function will be removed.", DeprecationWarning)
-
-    filename = f"{rank}.csv"
-    stats = _harmonize_name_stats(taxon_data)
-    headers = ['query', 'rank', 'match', 'status', 'confidence', 'synonym']
-    with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
-        csvwriter = csv.writer(csvfile)
-        csvwriter.writerow(headers)
-        csvwriter.writerows(stats)
-
 
 def raxtax_entry() -> List:
     """Entry point for raxtax process"""
@@ -160,14 +91,25 @@ class RaxTaxer():
         self._out_file = os.path.join(self._out_path, "raxtax.out")
         self._chunk_size = 10000
 
+    def _clean(self) -> None:
+        """ Cleans up the raxtax inputs and the output directory """
+        if os.path.exists(self._out_path):
+            shutil.rmtree(self._out_path)
+
+        if os.path.exists(self._query_file):
+            os.remove(self._query_file)
+
+        if os.path.exists(self._db_in_file):
+            os.remove(self._db_in_file)
+
+
     def run(self) -> List:
         """ Runs raxtax """
 
-        # ToDo: Enable Clean List
         results = []
         self._invoke_raxtax()
         results.extend(self._retrieve_result())
-        #self._clean()
+        self._clean()
         return results
 
     def _invoke_raxtax(self) -> None:
@@ -187,13 +129,8 @@ class RaxTaxer():
             raise
 
     def _retrieve_result(self) -> List[int]:
-        """
-        Reads the data in batches from a TSV file, identifies entries to mark based on given criteria, and returns marked entries.
-        
-        Args:
-            file_path (str): Path to the input file.
-            batch_size (int): Number of rows to process in each batch.
-            
+        """ Reads the data in batches from a TSV file, identifies entries to mark based on given criteria, and returns marked entries.
+
         Returns:
             list: Marked records with IDs
         """
@@ -267,8 +204,8 @@ class RaxTaxer():
         """Extracts specimen id, taxonomy, and score values from a TSV file."""
         results = []
         seen_set = set()
-        
-        with pd.read_csv(self._out_file, sep='\t', 
+
+        with pd.read_csv(self._out_file, sep='\t',
                          encoding='utf-8',
                          quoting=csv.QUOTE_NONE,
                          header=None,
@@ -276,14 +213,12 @@ class RaxTaxer():
                          dtype=object,
                          chunksize=self._chunk_size) as tsv_reader:
 
-            # Write subroutine
             write_list = []
 
             for chunk in tsv_reader:
                 for _, row in chunk.iterrows():
-                    # Split the first column by ';'
                     row_data = row.iloc[0].split(';')
-                    
+
                     # Extract specimen id and check if it has been seen before
                     specimen_id = row_data[0].strip()
                     if specimen_id in seen_set:
@@ -292,7 +227,6 @@ class RaxTaxer():
                     seen_set.add(specimen_id)
 
                     write_helper = row.dropna().iloc[:].tolist()
-                    #write_helper = write_helper[:-1]
                     write_list.append(write_helper)
 
                     # Extract taxonomy
@@ -303,12 +237,18 @@ class RaxTaxer():
                     for field in taxonomy_fields:
                         if ':' in field:
                             rank, value = field.split(':')
-                            if rank == 'p': taxonomy.p = value
-                            elif rank == 'c': taxonomy.c = value
-                            elif rank == 'o': taxonomy.o = value
-                            elif rank == 'f': taxonomy.f = value
-                            elif rank == 'g': taxonomy.g = value
-                            elif rank == 's': taxonomy.s = value
+                            if rank == 'p':
+                                taxonomy.p = value
+                            elif rank == 'c':
+                                taxonomy.c = value
+                            elif rank == 'o':
+                                taxonomy.o = value
+                            elif rank == 'f':
+                                taxonomy.f = value
+                            elif rank == 'g':
+                                taxonomy.g = value
+                            elif rank == 's':
+                                taxonomy.s = value
 
                     specimen_data = RaxTaxData(specimen_id=specimen_id, taxonomy=taxonomy)
                     # Extract scores starting from the second column after the taxonomy
@@ -321,24 +261,28 @@ class RaxTaxer():
                         for i in range(0, len(helepr_scores), 2):  # Scores are in pairs
                             rank = scores[i].split(':')[0].strip()
                             score_value = float(scores[i + 1].strip())
-                            if rank == 'f': specimen_data.score_f = score_value
-                            elif rank == 'g': specimen_data.score_g = score_value
-                            elif rank == 'o': specimen_data.score_o = score_value
-                            elif rank == 'c': specimen_data.score_c = score_value
-                            elif rank == 's': specimen_data.score_s = score_value
+                            if rank == 'f':
+                                specimen_data.score_f = score_value
+                            elif rank == 'g':
+                                specimen_data.score_g = score_value
+                            elif rank == 'o':
+                                specimen_data.score_o = score_value
+                            elif rank == 'c':
+                                specimen_data.score_c = score_value
+                            elif rank == 's':
+                                specimen_data.score_s = score_value
                     except (IndexError, ValueError):
-                        pass  # Handle potential misformatted rows gracefully
+                        pass
 
                     specimen_data.local_signal = float(scores[-3])
                     specimen_data.global_signal = float(scores[-2])
                     results.append(specimen_data)
 
-
-        
         # Write data to a TSV file
+        # ToDo: Disable in production
         with open('raxtax_unique_hits.tsv', mode='w', newline='', encoding='utf-8') as file:
             writer = csv.writer(file, delimiter='\t', quoting=csv.QUOTE_NONE)
-            
+
             # Write each list in the data to a row in the TSV file
             for row in write_list:
                 writer.writerow(row)
