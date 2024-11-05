@@ -6,10 +6,12 @@ This script will either invoke an GUI or use a CLI.
 from datetime import datetime
 import logging
 import sys
-from PyQt6.QtWidgets import QApplication, QWidget
+#from PyQt6.QtWidgets import QApplication, QWidget
 
 from cli import cli_main
 
+# ToDo: Implement GUI
+# ToDo: Perform system checks on startup
 if __name__ == "__main__":
 
     # Setup logger
@@ -22,15 +24,15 @@ if __name__ == "__main__":
     logger.debug("Number of arguments: %d", len(sys.argv))
 
     if len(sys.argv) == 1:
+        # Start GUI if non arguments provided
         logger.debug("Starting GUI...")
         raise NotImplementedError("GUI not implemented yet.")
-        # Start GUI if non arguments provided
         # eyebold = QApplication([])
         # main_window = QWidget()
         # main_window.show()
-
         # eyebold.exec()
-    else:
-        logger.debug("Invoking CLI...")
-        # Run CLI when arguments are provided
-        cli_main(sys.argv)
+        # sys.exit(0)
+
+    # Run CLI when arguments are provided
+    logger.debug("Invoking CLI...")
+    cli_main(sys.argv)

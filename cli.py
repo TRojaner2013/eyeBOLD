@@ -3,13 +3,9 @@
 This module is a command line interface for eyebold.
 It provides serveral subcommands to interact with eyeBOLD.
 
-Usage:
-    eyebold.py build 
-    eyebold.py update
-    eyebold.py query
-    eyebold.py export
-
 """
+# ToDo: Make handles return false instead of terminating program
+# ToDo: Write a better module description
 from datetime import datetime
 import argparse
 import sys
@@ -21,7 +17,13 @@ from common.eyebold_database import ExportFormats
 logger = logging.getLogger(__name__)
 
 def _init_argparse() -> argparse.ArgumentParser:
-    """Creates and returns argument parser"""
+    """Creates and returns argument parser
+
+        Retrurns:
+            ArgumentParser for eyeBOLD
+    """
+
+    #ToDo: Create useful help messages here.
     logger.debug("Called _init_argparse()")
 
     my_parser = argparse.ArgumentParser(prog='eyeBOLD',
@@ -34,7 +36,6 @@ def _init_argparse() -> argparse.ArgumentParser:
     my_parser.add_argument('marker')
     my_parser.add_argument('-v', '--verbose', action='count', default=0)
 
-    #ToDo: Add a help text here.
     subpuarser = my_parser.add_subparsers(title='Subparser',
                                           description='build, update, export, query, review',
                                           help='',
@@ -68,19 +69,18 @@ def _init_argparse() -> argparse.ArgumentParser:
                                help="Specify the output format: TSV, CSV, RAXTAX or FASTA")
     export_parser.add_argument('output', type=str,
                                help="Specify the output file name or path")
-    
+
     # Add parser for build-location-db command
     build_loc_db_parser = subpuarser.add_parser('build-location-db')
-    build_loc_db_parser.add_argument("-s" '--batch_size', type=int, default=1000,
+    build_loc_db_parser.add_argument("-s", '--batch_size', type=int, default=1000,
                                      help="Specify the batch size for the download process")
 
     # Add parser for review command
     subpuarser.add_parser('review')
 
-
     return my_parser
 
-def _log_success():
+def _log_success() -> None:
     """Logs success on programm exit."""
     _time_str = datetime.now().strftime('%Y-%m-%d_%H_%M_%S')
     logger.info("All actions succeded.")
@@ -89,8 +89,19 @@ def _log_success():
 
 def _build_handle(db_file: str, loc_db_file: str, marker: str,
                    tsv_file: str, dtpkg_file: str) -> bool:
-    """Handles create subcommand"""
-    logger.debug("Called _create_handle()")
+    """Handles build command
+
+        Args:
+            - db_file (str): Location of db-file
+            - loc_db_file (str): Location of location-db-file
+            - marker (str)" Marker used in database
+            = tsv_file (str): Location of databse input file
+            - dtpkg_file (str): Location of database input description file
+
+        Returns:
+            bool: True on success
+    """
+    logger.debug("Called _build-handle()")
 
     try:
         my_db = EyeBoldDatabase(db_file, marker, loc_db_file)
@@ -106,10 +117,20 @@ def _build_handle(db_file: str, loc_db_file: str, marker: str,
 
 def _update_handle(db_file: str, loc_db_file: str, marker: str,
                    tsv_file: str, dtpkg_file: str) -> bool:
-    """Handles create subcommand"""
+    """Handles update command
+
+        Args:
+            - db_file (str): Location of db-file
+            - loc_db_file (str): Location of location-db-file
+            - marker (str)" Marker used in database
+            = tsv_file (str): Location of databse input file
+            - dtpkg_file (str): Location of database input description file
+
+        Returns:
+            bool: True on success
+    """
     logger.debug("Called _update_handle()")
 
-    # Connect to database
     try:
         my_db = EyeBoldDatabase(db_file, marker, loc_db_file)
         my_db.update(tsv_file, dtpkg_file)
@@ -120,7 +141,16 @@ def _update_handle(db_file: str, loc_db_file: str, marker: str,
     return True
 
 def _review_handle(db_file: str, loc_db_file: str, marker: str) -> bool:
-    """ Handles review subcommand"""
+    """Handles review command
+
+        Args:
+            - db_file (str): Location of db-file
+            - loc_db_file (str): Location of location-db-file
+            - marker (str)" Marker used in database
+
+        Returns:
+            bool: True on success
+    """
     logger.debug("Called _review_handle()")
     try:
         my_db = EyeBoldDatabase(db_file, marker, loc_db_file)
@@ -131,11 +161,21 @@ def _review_handle(db_file: str, loc_db_file: str, marker: str) -> bool:
         sys.exit(3)
     return True
 
-def _build_location_db_handle(db_file: str, loc_db_file: str, marker: str, batch_size: int=1000) -> bool:
-    """ Handles build-location-db subcommand"""
+def _build_location_db_handle(db_file: str, loc_db_file: str, marker: str,
+                              batch_size: int=500) -> bool:
+    """Handles build-location-db command
+
+        Args:
+            - db_file (str): Location of db-file
+            - loc_db_file (str): Location of location-db-file
+            - marker (str)" Marker used in database
+            = batch_size (int): Number of keys to download at once
+
+        Returns:
+            bool: True on success
+    """
     logger.debug("Called _create_handle()")
 
-    # Connect to database
     try:
         my_db = EyeBoldDatabase(db_file, marker, loc_db_file)
         my_db.invoke_tracker(batch_size)
@@ -148,28 +188,42 @@ def _build_location_db_handle(db_file: str, loc_db_file: str, marker: str, batch
 
 
 def _query_handle(db_file: str, loc_db_file: str, marker: str,
-                  query: str, format: str|None=None, outfile: str|None=None) -> bool:
-    """Handles create subcommand"""
+                  query: str, format_: str|None=None, out_file: str|None=None) -> bool:
+    """Handles query command
+
+        Note:
+            Format can only be supplied with out-file option.
+        Args:
+            - db_file (str): Location of db-file
+            - loc_db_file (str): Location of location-db-file
+            - marker (str)" Marker used in database
+            - query (str): Full SQL-Query for database
+            = format_ (str): Export format
+            - out_file (str): Location of output file
+
+        Returns:
+            bool: True on success
+    """
     logger.debug("Called _get_handle()")
 
-    if format is not None:
+    if format_ is not None:
         try:
-            format_ = ExportFormats.from_str(format)
+            format_ = ExportFormats.from_str(format_)
             if format_ in (ExportFormats.RAXTAX, ExportFormats.FASTA):
-                logger.critical("Invalid format specified: %s", format)
+                logger.critical("Invalid format specified: %s", format_)
                 logger.critical("Valid formats are: TSV, CSV")
                 logger.debug("Terminating program...")
                 sys.exit(3)
         except ValueError:
-            logger.critical("Invalid format specified: %s", format)
+            logger.critical("Invalid format specified: %s", format_)
             logger.critical("Valid formats are: TSV, CSV, RAXTAX, FASTA")
             logger.debug("Terminating program...")
             sys.exit(2)
 
     try:
         my_db = EyeBoldDatabase(db_file, marker, loc_db_file)
-        if outfile is not None:
-                my_db.query_export(query, outfile, format_)
+        if out_file is not None:
+            my_db.query_export(query, out_file, format_)
         else:
             my_db.query_print(query)
 
@@ -181,20 +235,31 @@ def _query_handle(db_file: str, loc_db_file: str, marker: str,
 
 
 def _export_handle(db_file: str, loc_db_file: str, marker: str,
-                   format: str, out_file: str) -> bool:
-    """Handles create subcommand"""
+                   format_: str, out_file: str) -> bool:
+    """Handles export command
+
+        Args:
+            - db_file (str): Location of db-file
+            - loc_db_file (str): Location of location-db-file
+            - marker (str)" Marker used in database
+            = format_ (str): Export format
+            - out_file (str): Location of output file
+
+        Returns:
+            bool: True on success
+    """
     logger.debug("Called _export_handle()")
 
     try:
-        format_ = ExportFormats.from_str(format)
+        format_ = ExportFormats.from_str(format_)
     except ValueError:
-        logger.critical("Invalid format specified: %s", format)
+        logger.critical("Invalid format specified: %s", format_)
         logger.critical("Valid formats are: TSV, CSV, RAXTAX, FASTA")
         logger.debug("Terminating program...")
         sys.exit(2)
 
     try:
-        format_ = ExportFormats.from_str(format)
+        format_ = ExportFormats.from_str(format_)
         my_db = EyeBoldDatabase(db_file, marker, loc_db_file)
         my_db.export(format_, out_file)
     except FileNotFoundError:
@@ -205,7 +270,12 @@ def _export_handle(db_file: str, loc_db_file: str, marker: str,
     return True
 
 
-def cli_main(*args):
+def cli_main(*args) -> None:
+    """Entry point for command line interface
+
+        Args:
+            - *args: Arguments passed by command line
+    """
 
     parser = _init_argparse()
     args = parser.parse_args()
@@ -215,6 +285,7 @@ def cli_main(*args):
     marker = args.marker
 
     # Set logging verbosity
+    #ToDo Q1: Make this a function
     if args.verbose == 0:
         logging.info("Setting logging level to CRITICAL.")
         logger.setLevel(logging.CRITICAL)
@@ -261,7 +332,8 @@ def cli_main(*args):
                 _log_success()
                 sys.exit(0)
         else:
-            if _query_handle(db_file, loc_db_file, marker, args.sql_query, args.format, args.output):
+            if _query_handle(db_file, loc_db_file, marker,
+                             args.sql_query, args.format, args.output):
                 _log_success()
                 sys.exit(0)
     elif args.sub == 'export':
@@ -271,8 +343,7 @@ def cli_main(*args):
             sys.exit(0)
     elif args.sub == 'build-location-db':
         logger.debug("Invoking build-location-db handle.")
-        if _build_location_db_handle(db_file, loc_db_file, marker, args.s__batch_size
-):
+        if _build_location_db_handle(db_file, loc_db_file, marker, args.s__batch_size):
             _log_success()
             sys.exit(0)
     elif args.sub == 'review':
