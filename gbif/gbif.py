@@ -231,12 +231,69 @@ def handle_error(response: requests.Response, batch_index: int) -> None:
                 response.status_code, response.text)
     raise ValueError("Request failed")
 
+def _gibf_status_handler(req_id: int, retries: int=3) -> dict:
+    """ Handles status requests to GBIF
+
+        Args:
+            - id (int): ID of the download request
+            - retries (int): Number of retries on failure
+
+        Returns:
+            - Dictonary with status information
+
+        Raises:
+            - ValueError: If download fails
+    """
+    try:
+        meta = occ.download_meta(req_id)
+        return meta
+    except Exception as err:
+        if retries > 0:
+            # Time-out error, retry after waiting for a while
+            logger.debug('Status update failed, retrying in 30 seconds.')
+            time.sleep(30)
+            return _gibf_status_handler(id, retries-1)
+
+        logger.warning('Download failed, please run review command.')
+        logger.debug(('Download failed.\n\t'
+                       'Error: %s') , err)
+        raise ValueError("Download failed")
+
+def _gbif_download_handler(req_id: int, file_path: str, retries: int=3) -> bool:
+    """ Handles download requests to GBIF
+
+        Args:
+            - id (int): ID of the download request
+            - retries (int): Number of retries on failure
+
+        Returns:
+            - True on success
+
+        Raises:
+            - ValueError: If download fails
+    """
+    try:
+        occ.download_get(req_id, file_path)
+        return True
+    except Exception as err:
+        if retries > 0:
+            # Time-out error, retry after waiting for a while
+            logger.debug('Status update failed, retrying in 30 seconds.')
+            time.sleep(30)
+            return _gbif_download_handler(id, file_path, retries-1)
+
+        logger.warning('Download failed, please run review command.')
+        logger.debug(('Download failed.\n\t'
+                       'Error: %s') , err)
+        raise ValueError("Download failed")
+
+
 def get_locations_sql(keys: List[int], batch_size: int) -> Generator[Tuple[str, List[int]],
                                                                      Any, Any]:
     """ Downloads locations from GBIF using SQL queries
 
         Note:
-            This function isn experimental and reflects GBIFs current implementation
+            This function is experimental and reflects GBIFs current implementation
             for SQL downloads.
             This feature is only available to invites users and not open to public.
 
@@ -290,7 +347,7 @@ def get_locations_sql(keys: List[int], batch_size: int) -> Generator[Tuple[str, 
         else:
             handle_error(response, i)
 
-        meta = occ.download_meta(req_id)
+        meta = _gibf_status_handler(req_id)
         while meta["status"] != "SUCCEEDED":
             # We need to check if the request was killed.
             if meta["status"] == "KILLED":
@@ -299,11 +356,13 @@ def get_locations_sql(keys: List[int], batch_size: int) -> Generator[Tuple[str, 
 
             # logger.info("Wating download... Metainfo:\n%s", meta['status'])
             time.sleep(60)
-            meta = occ.download_meta(req_id)
+            meta = _gibf_status_handler(req_id)
+            #meta = occ.download_meta(req_id)
 
         # The time has come to download the file.
         logger.info("Starting download for request: %s", req_id)
-        occ.download_get(req_id, file_path)
+        #occ.download_get(req_id, file_path)
+        _gbif_download_handler(req_id, file_path)
         yield (os.path.join(file_path, f"{req_id}.zip"), batch)
 
 def get_locations(keys: List[int], batch_size: int) -> Generator[Tuple[str, List[int]], Any, Any]:
