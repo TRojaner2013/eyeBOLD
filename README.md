@@ -23,6 +23,15 @@ Set up a venv for this project and run the following command to install all requ
 pip install -r requirements.txt
 ```
 
+Install local pygbif package with 
+```
+pip install -e my_pygbif
+```
+
+Install local kgcpy package using
+```
+pip install my_kgcpy
+```
 Note: This insalls two packages which differ from their original packages: kgcpy, pygbif.
       It is mandatory to install the adapted kgcpy version.
       The adapted pygbif version introduces https and skips e-mail notifications. If it is not installed GBIF_EMAIL must be set as environmental variable.
