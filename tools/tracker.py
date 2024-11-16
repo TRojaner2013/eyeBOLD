@@ -1,30 +1,26 @@
 """ Module implementing location tracking and evaluation for specimen """
 
-
-import csv
-import logging
-import os
-import pandas as pd
-import numpy as np
-import sqlite3
-import zipfile
 from collections import defaultdict
-
+import csv
 from itertools import chain
-from typing import Any, List, Tuple, Set, Dict
-import kgcpy # type: ignore
+import logging
+import multiprocessing as mp
+import os
+import sqlite3
+from typing import List, Tuple, Set, Dict
+import zipfile
 
 from sqlite.Bitvector import BitIndex
-from gbif.gbif import get_locations_sql
 from gbif.gbif import get_locations
-import multiprocessing as mp
-import numpy as np
+import common.constants as const
 
-from multiprocessing import Pool
-import time
+import kgcpy # type: ignore # pylint: disable=import-error
+import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
-WORKER_THREADS = 1
+
+#ToDo: Move to constants?
 KOPPEN_ZONES = [
     'af', 'am', 'as', 'aw', 'bsh', 'bsk', 'bwh', 'bwk', 
     'cfa', 'cfb', 'cfc', 'csa', 'csb', 'csc', 'cwa', 'cwb',
@@ -33,20 +29,21 @@ KOPPEN_ZONES = [
 ]
 
 def _get_keys(db_handle: sqlite3.Connection) -> List[int]:
-    """Returns a list of GBIF keys for queries """
+    """ Returns list of uncheked gbif_keys from the database
 
-    # query = ("SELECT DISTINCT gbif_key FROM specimen WHERE"
-    #          f" ((checks & (1 << {BitIndex.INCL_SUBSPECIES.value}) ="
-    #          f" (1 << {BitIndex.INCL_SUBSPECIES.value}))"
-    #          f" OR (checks & (3 << {BitIndex.INCL_SPECIES.value}) ="
-    #          f" (1 << {BitIndex.INCL_SPECIES.value})));")
+        Args:
+            - db_handle (sqlite3.Connection): Connection to the database
 
-    # We only want to include entires we habe not checked before.
+        Returns:
+            List[int]: List of gbif_keys to check
+    """
+
+    # We only want to include entires we have not checked before.
     query = ("SELECT DISTINCT gbif_key FROM specimen WHERE"
              f"(checks & (1 << {BitIndex.INCL_SPECIES.value}) ="
              f" (1 << {BitIndex.INCL_SPECIES.value}))"
              f"AND (checks & (1 << {BitIndex.LOC_CHECKED.value})) = 0;")
-    
+
     cursor = db_handle.cursor()
     cursor.execute(query)
     keys = list(chain(*cursor.fetchall()))
@@ -54,14 +51,23 @@ def _get_keys(db_handle: sqlite3.Connection) -> List[int]:
     return keys
 
 def _get_file_name(zip_file: str) -> str:
-    """ Validates contend of zip file and returns """
+    """ Validates contents of zip-file
+
+        Args:
+            - zip_file (str): Path to the zip-file
+    
+        Returns:
+            Tuple[bool, str]: Tuple with status and file name
+    """
+
+    #ToDo: Raise exception instead of returning tuple
     try:
         with zipfile.ZipFile(zip_file, 'r') as zip_handle:
             file_list = zip_handle.namelist()
 
             if len(file_list) == 1:
                 return (True, file_list[0])
-            
+
             logger.error("Downloaded file %s contains to many files:\n%s",
                          zip_file, file_list)
             return (False, "")
@@ -71,15 +77,15 @@ def _get_file_name(zip_file: str) -> str:
         return (False, "")
 
 def _get_new_keys(loc_db_handle: sqlite3.Connection, keys: List[int]) -> Tuple[List[int],List[int]]:
-    """ Returns a list of keys that are not already in the database 
+    """ Returns all gibf_keys in keys that are not already in the location database 
 
-    Args:
-        loc_db_handle (sqlite3.Connection): Connection to the location database
-        keys (List[int]): List of keys to check
+        Args:
+            - loc_db_handle (sqlite3.Connection): Connection to the location database
+            - keys (List[int]): List of gbif_keys to check
 
-    Returns:
-        List[int]: List of keys that are not already in the database
-        List[int]: List of keys that are already in the database
+        Returns:
+            List[int]: List of gbif_keys that are not already in the database
+            List[int]: List of gbif_keys that are already in the database
 
     """
     cursor = loc_db_handle.cursor()
@@ -88,22 +94,21 @@ def _get_new_keys(loc_db_handle: sqlite3.Connection, keys: List[int]) -> Tuple[L
     existing_keys = set(row[0] for row in cursor.fetchall())
     new_keys = [key for key in keys if key not in existing_keys]
 
-    
     return new_keys, list(existing_keys)
 
 def _mark_keys_as_checked(db_handle: sqlite3.Connection,
                           loc_db_handle: sqlite3.Connection,
                           keys: List[int]) -> None:
-    """ Marks a key as checked in the database 
+    """ Marks a gbif_key as checked in the database 
 
-    Args:
-        db_handle (sqlite3.Connection): Connection to the database
-        loc_db_handle (sqlite3.Connection): Connection to the location database
-        keys (List[int]): Keys to mark as checked
+        Note:
+            We mark gbif_keys as checked, so specimens without any occurrence data are not
+            downloaded again and again.
 
-    Note:
-        We mark keys as checked, so specimens without any occurrence data are not
-        downloaded again and again.
+        Args:
+            - db_handle (sqlite3.Connection): Connection to the database
+            - loc_db_handle (sqlite3.Connection): Connection to the location database
+            - keys (List[int]): gbif_keys to mark as checked
     """
 
     _evaluate_location(db_handle, loc_db_handle, keys)
@@ -115,15 +120,15 @@ def _mark_keys_as_checked(db_handle: sqlite3.Connection,
 
 
 def validate_location(db_file: str, loc_db_file: str, batch_size: int):
-    """ Downloads occurrence data and compares it to data from BOLD 
+    """ Downloads and evaluates occurrence data
+
+    Note:
+        The download consumes a lot of time and resources (disk space).
 
     Args:
-        db_file (str): Path to the specimen database file
-        loc_db_file (str): Path to the location database file
-        batch_size (int): Number of keys to download at once
-    
-    Note:
-        The download consumes a lot of time and resources.
+        - db_file (str): Path to the specimen database file
+        - loc_db_file (str): Path to the location database file
+        - batch_size (int): Number of gbif_keys to download at once
     """
 
     db_handle = sqlite3.connect(db_file)
@@ -147,22 +152,19 @@ def validate_location(db_file: str, loc_db_file: str, batch_size: int):
     #debug_file = os.path.join(".", '0005124-241024112534372.zip')
     #for zip_file in (debug_file,):
 
-    # NOTE: This call works only if gbif account is registered as user to test
-    # SQL-Download feature. Reach out to GBIF to get access!
-    for zip_file, incl_keys in get_locations_sql(keys, batch_size):
+    for zip_file, incl_keys in get_locations(keys, batch_size):
 
         status, csv_file = _get_file_name(zip_file)
         if not status:
             logger.error("Unable to access location data in file %s", zip_file)
             continue
-        try: 
+        try:
             with zipfile.ZipFile(zip_file, 'r') as zip_handle:
                 logger.info("Extracting file %s from %s...", csv_file, zip_file)
                 zip_handle.extract(csv_file, extract_path)
 
             file_path = os.path.join(extract_path, csv_file)
             _extract_information_2(file_path, loc_db_handle)
-            # Mark downloaded keys as checked
             _mark_keys_as_checked(db_handle, loc_db_handle, incl_keys)
 
             # Cleanup disk space for obviouse reasons
@@ -173,33 +175,49 @@ def validate_location(db_file: str, loc_db_file: str, batch_size: int):
             logger.error("Unable to extract zip-file %s", zip_file)
             continue
 
-#ToDo: HIGH IMPORANT
-# Define column names as constants
-def _get_kg_zone_vec(df, epsilon=1e-6) -> str:
-    """ Returns the Koeppen-Geiger zone for given coordinates """
+#ToDo: Define column names as constants
+def _get_kg_zone_vec(data: pd.DataFrame, epsilon=1e-6) -> pd.DataFrame:
+    """ Returns the Koeppen-Geiger zone for given coordinates
 
-    helper = df.copy()
+        Args:
+            - data (pd.DataFrame): Dataframe with columns decimallatitude 
+                                   and decimallongitude
+            - epsilon (float): Small value to avoid providing exact values
+                               at the poles and the dateline
+        Returns:
+            pd.DataFrame: Dataframe with additional column kg_zone containing
+                          the Koeppen-Geiger zone
+    """
+
+    helper = data.copy()
+
     # Constrain latitude to (-90 + epsilon, 90 - epsilon)
-    helper['decimallatitude'] = np.clip(df['decimallatitude'].astype(float), -90.0 + epsilon, 90.0 - epsilon)
-    
+    helper['decimallatitude'] = np.clip(data['decimallatitude'].astype(float),
+                                        -90.0 + epsilon, 90.0 - epsilon)
+
     # Constrain longitude to (-180 + epsilon, 180 - epsilon)
-    helper['decimallongitude'] = np.clip(df['decimallongitude'].astype(float), -180.0 + epsilon, 180.0 - epsilon)
-        
-    helper['kg_zone'] = kgcpy.vectorized_lookupCZ(helper['decimallatitude'], helper['decimallongitude'])
+    helper['decimallongitude'] = np.clip(data['decimallongitude'].astype(float),
+                                         -180.0 + epsilon, 180.0 - epsilon)
+
+    helper['kg_zone'] = kgcpy.vectorized_lookupCZ(helper['decimallatitude'],
+                                                  helper['decimallongitude'])
 
     # This is needed to make the insertion process smother and faster
     helper['kg_zone'] = helper['kg_zone'].astype(str).str.lower()
     return helper
 
 def _get_kg_zone(row, epsilon=1e-6) -> str:
-    """ Returns the Koeppen-Geiger zone for given coordinates """
+    """ Returns the Koeppen-Geiger zone for given coordinate
+
+        Note: This funciton is not used anymore, but kept for reference.
+    """
 
     lat = float(row['decimallatitude'])
     lon = float(row['decimallongitude'])
 
     # Constrain latitude to (-90 + epsilon, 90 - epsilon)
     lat = max(-90.0 + epsilon, min(90.0 - epsilon, lat))
-    
+
     # Constrain longitude to (-180 + epsilon, 180 - epsilon)
     lon = max(-180.0 + epsilon, min(180.0 - epsilon, lon))
 
@@ -207,7 +225,10 @@ def _get_kg_zone(row, epsilon=1e-6) -> str:
     return kgcpy.lookupCZ(lat, lon)
 
 def _extract_information(tsv_file: str, db_handle: sqlite3.Connection) -> None:
-    """ Extracts relevant information from downloaded data"""
+    """ Extracts relevant information from downloaded data
+
+        Note: This function is not used anymore, but kept for reference.
+    """
     chunk_size = 10000000
     cursor = db_handle.cursor()
     # gbif_id seems to be not unique  thus use update to avoid failures.
@@ -216,7 +237,10 @@ def _extract_information(tsv_file: str, db_handle: sqlite3.Connection) -> None:
 
     logger.info("Starting to insert location data into DB with chunk_size of %s", chunk_size)
     with pd.read_csv(tsv_file, sep='\t',
-                     usecols=["acceptedtaxonkey", "decimallatitude", "decimallongitude", "countrycode"],
+                     usecols=[
+                                "acceptedtaxonkey", "decimallatitude",
+                                "decimallongitude", "countrycode"
+                             ],
                      encoding='utf-8',
                      quoting= csv.QUOTE_NONE,
                      on_bad_lines='warn',
@@ -239,18 +263,34 @@ def _extract_information(tsv_file: str, db_handle: sqlite3.Connection) -> None:
                 cursor.executemany(command, data)
                 db_handle.commit()
 
-def _pickable_defaultdict_creator():
+def _pickable_defaultdict_creator() -> defaultdict:
+    """ Returns a default dictionary with int as default value
+
+        Note: This is needed to make multiprocessing work
+
+        Returns:
+            defaultdict: Default dictionary with int as default
+    """
     return defaultdict(int)
 
 def process_chunk(chunk: pd.DataFrame) -> Tuple[Dict[int, Dict[str, int]], Dict[int, Set[str]]]:
-    """
-    Processes a single chunk of data, returning aggregated results for each taxon.
+    """ Processes a single chunk of data, returning aggregated results for each
+        taxon.
+
+        Args:
+            - chunk (pd.DataFrame): Dataframe with columns acceptedtaxonkey,
+                                    kg_zone and countrycode
+
+        Returns:
+            Tuple[Dict[int, Dict[str, int]], Dict[int, Set[str]]]: Tuple containing
+            aggregated data for each taxon and a set of country codes for each taxon
+            provided in a dictionary.
     """
     chunk = chunk.dropna()
     chunk = _get_kg_zone_vec(chunk)
     taxon_data = defaultdict(_pickable_defaultdict_creator)
     country_codes = defaultdict(set)
-    
+
     for _, row in chunk.iterrows():
         taxon_id = row['acceptedtaxonkey']
         kg_zone = row['kg_zone']
@@ -262,8 +302,18 @@ def process_chunk(chunk: pd.DataFrame) -> Tuple[Dict[int, Dict[str, int]], Dict[
     return taxon_data, country_codes
 
 def combine_results(results: List[Tuple[Dict[int, Dict[str, int]], Dict[int, Set[str]]]]):
-    """
-    Combines results from multiple processed chunks into a single dictionary.
+    """ Combines results from multiple processed chunks into a single dictionary.
+
+        Note: This function is mandatory as data in download is not sorted and
+              thus each chunk can contain data from any gbif_key the same taxon
+        Args:
+            - results (List[Tuple[Dict[int, Dict[str, int]], Dict[int, Set[str]]]): 
+                List of results from process_chunk
+
+        Returns:
+            Tuple[Dict[int, Dict[str, int]], Dict[int, Set[str]]]: Tuple containing
+            aggregated data for each taxon and a set of country codes for each taxon
+            provided in a dictionary.
     """
     aggregated_data = defaultdict(_pickable_defaultdict_creator)
     aggregated_countries = defaultdict(set)
@@ -277,12 +327,17 @@ def combine_results(results: List[Tuple[Dict[int, Dict[str, int]], Dict[int, Set
 
     return aggregated_data, aggregated_countries
 
-# Main function to extract and process information with multiprocessing
-def _extract_information_2(tsv_file: str, db_handle: sqlite3.Connection, num_processes: int = 8) -> None:
+def _extract_information_2(tsv_file: str, db_handle: sqlite3.Connection,
+                           num_processes: int = const.PHYSICAL_CORES_PER_CPU) -> None:
+    """ Extracts relevant information from downloaded data and aggregates it using
+        multiprocessing.
+
+        Args:
+            - tsv_file (str): Path to the TSV file containing location data
+            - db_handle (sqlite3.Connection): Connection to the location database
+            - num_processes (int): Number of processes to use for parallel processing
     """
-    Extracts relevant information from downloaded data and aggregates it using parallel processing.
-    """
-    chunk_size = 1000000
+    chunk_size = const.TRACKER_CHUNK_SIZE
     pool = mp.Pool(num_processes)
 
     results = []
@@ -290,7 +345,10 @@ def _extract_information_2(tsv_file: str, db_handle: sqlite3.Connection, num_pro
     logger.info("Starting to process location data from TSV file with chunk_size of %s", chunk_size)
 
     with pd.read_csv(tsv_file, sep='\t',
-                     usecols=["acceptedtaxonkey", "decimallatitude", "decimallongitude", "countrycode"],
+                     usecols=[
+                                "acceptedtaxonkey", "decimallatitude",
+                                "decimallongitude", "countrycode"
+                             ],
                      encoding='utf-8',
                      quoting=csv.QUOTE_NONE,
                      on_bad_lines='warn',
@@ -337,15 +395,18 @@ def _extract_information_2(tsv_file: str, db_handle: sqlite3.Connection, num_pro
     cursor = db_handle.cursor()
     cursor.executemany(command, data_to_insert)
     db_handle.commit()
-    logger.info("Inserted aggregated data for %d taxon records into database.", len(data_to_insert))
+    logger.info("Inserted aggregated data for %d taxon records into database.",
+                len(data_to_insert))
 
-
-def _evaluate_location(db_handle: sqlite3.Connection, loc_db_handle: sqlite3.Connection, keys: List[int]) -> None:
+def _evaluate_location(db_handle: sqlite3.Connection, loc_db_handle: sqlite3.Connection,
+                       keys: List[int]) -> None:
     """ Evaluates the likelihood of a location being correct 
         The result is written into the database.
 
     Args:
-        db_handle (sqlite3.Connection): Connection to the location database
+        - db_handle (sqlite3.Connection): Connection to the location database
+        - loc_db_handle (sqlite3.Connection): Connection to the location database
+        - keys (List[int]): List of gbif_keys to evaluate
     """
 
     # Create a dictionary cursor to store the results
@@ -353,15 +414,16 @@ def _evaluate_location(db_handle: sqlite3.Connection, loc_db_handle: sqlite3.Con
     loc_cursor = loc_db_handle.cursor()
 
     db_cursor = db_handle.cursor()
-    # Get all taxon keys we hav edata on 
+    # Get all taxon keys we have data on
     for key in keys:
-        
+
         loc_cursor.execute("SELECT * FROM climate_data WHERE taxon_key = ?;", (key,))
         data = loc_cursor.fetchone()
 
         if not data:
             # Species not in database --> No locaton data in GBIF
             # -> Mark as not verifiable
+            # ToDo: Keep a trace of this in location database to avoid redownloading on new build.
             command = f"UPDATE specimen SET geo_info = -1,  checks = checks | (1 << {BitIndex.LOC_EMPTY.value}) WHERE gbif_key = ?;"
             db_cursor.execute(command, (key,))
             loc_db_handle.commit()
@@ -371,12 +433,10 @@ def _evaluate_location(db_handle: sqlite3.Connection, loc_db_handle: sqlite3.Con
         country_list = set(data['country_codes'].split(',')) if data['country_codes'] else set()
         total_occurrences = sum(data["kg_"+zone] for zone in KOPPEN_ZONES)
 
-
         # Get all occurrences for the taxon key
         db_cursor.execute("SELECT specimenid, country_iso, kg_zone FROM specimen WHERE gbif_key = ?;", (key,))
-        occurrences = db_cursor.fetchmany(900)
+        occurrences = db_cursor.fetchmany(const.TRACKER_INSERT_CHUNK_SIZE)
 
-        
         # Store results
         command = f"""UPDATE specimen SET geo_info = ?, checks = checks | (? << {BitIndex.LOC_PASSED.value}) WHERE specimenid = ?;"""
         while occurrences:
@@ -400,10 +460,7 @@ def _evaluate_location(db_handle: sqlite3.Connection, loc_db_handle: sqlite3.Con
 
             db_cursor.executemany(command, results)
             db_handle.commit()
-            occurrences = db_cursor.fetchmany(900)
+            occurrences = db_cursor.fetchmany(const.TRACKER_INSERT_CHUNK_SIZE)
 
     # Reset behavior of the cursor
     loc_db_handle.row_factory = None
-
-    
-
