@@ -1,4 +1,8 @@
-"""Module implementing updating mechanism for eyeBOLD"""
+"""Module implementing updating mechanism for eyeBOLD
+
+    This module is deprecated and will be removed in future versions.
+    -- No further documentation will be added.
+"""
 
 import sqlite3
 import logging

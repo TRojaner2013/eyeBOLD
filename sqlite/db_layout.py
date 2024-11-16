@@ -1,12 +1,12 @@
-"""
-This module includes fixed information for our database
-"""
+""" This module includes fixed information for our database"""
 
 from enum import StrEnum
 
 class CreateCommands(StrEnum):
+    """ Enum of SQL commands for creating tables """
+
     # Information regarding SPECIMEN table
-    # ToDo: Rename gbif_key to gbif_accepted_taxon_key!
+    # ToDo: Rename gbif_key to gbif_accepted_taxon_key?
     SPECIMEN_CMD = '''CREATE TABLE IF NOT EXISTS specimen (
                     specimenid INTEGER PRIMARY KEY NOT NULL,
                     nuc_raw TEXT NOT NULL,
@@ -36,16 +36,17 @@ class CreateCommands(StrEnum):
                     FOREIGN KEY (specimenid) REFERENCES processing_input(specimenid)
                     );'''
 
+    # Deprecated table
     # Information regarding GBIF_INFO Table
     # Create Index on GBIF_KEY
-    GBIF_INFO_CMD = '''CREATE TABLE IF NOT EXISTS gbif_info (
-                    ebc_record_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    taxon_key INTEGER NOT NULL,
-                    occurrenceid INTEGER NOT NULL,
-                    long FLOAT NOT NULL,
-                    latt FLOAT NOT NULL,
-                    kg_zone TEXT
-                    );'''
+    # GBIF_INFO_CMD = '''CREATE TABLE IF NOT EXISTS gbif_info (
+    #                 ebc_record_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    #                 taxon_key INTEGER NOT NULL,
+    #                 occurrenceid INTEGER NOT NULL,
+    #                 long FLOAT NOT NULL,
+    #                 latt FLOAT NOT NULL,
+    #                 kg_zone TEXT
+    #                 );'''
 
     # Alternative GBIF IMplementation
     GBIF_DB_CMD = '''CREATE TABLE climate_data (

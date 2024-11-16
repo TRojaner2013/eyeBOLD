@@ -1,30 +1,28 @@
-"""Module that build a databse """
+"""Module that builds our databse """
 
-import sqlite3
-import warnings
 import logging
-from typing import Dict, Tuple, List, Any
+import sqlite3
+from typing import Dict, Tuple, List
 
+from common.helper import file_exist
+import common.constants as const
 from sqlite.db_layout import CreateCommands
 from sqlite.parser import get_data_layout, get_create_command, TsvParser, TsvUpdateParser
-from common.helper import file_exist
 
 logger = logging.getLogger(__name__)
 
-INSERT_BATCH_SIZE = 10000
-
-# ToDo: Create helper module for this:
 def execute_batches(db_handle:sqlite3.Connection,
                     commands: List[Tuple[str,List[str]]],
                     retrive: bool=False) -> List:
-    """ Executes a batch of commands
+    """ Executes a batch of commands one after another
 
-        Note that this does not uses the executemany method provided by sqlite3.
-        The mere intention is to collect and then execute statments to work a
-        bit more efficently on the database.
+        Note:
+            This does not uses the executemany method provided by sqlite3.
+            The mere intention is to collect and then execute statments to work a
+            bit more efficently on the database.
 
-        Arguments:
-            - db_handle(sqlite3.Connection): Connection to database
+        Args:
+            - db_handle (sqlite3.Connection): Connection to database
             - commands (List[Tuple[str, List[str]]]): List of tuples with
                                                       command and values that
                                                       are inserted.
@@ -42,9 +40,9 @@ def execute_batches(db_handle:sqlite3.Connection,
                 result = cursor.fetchone()
                 results.append(result[0])
         db_handle.commit()
-    except Exception as e:
+    except Exception as err:
         db_handle.rollback()
-        print(f"Error executing commands: {e}")
+        print(f"Error executing commands: {err}")
         raise
 
     return results
@@ -52,7 +50,7 @@ def execute_batches(db_handle:sqlite3.Connection,
 def open_db_file(path: str) -> sqlite3.Connection:
     """ Opens database file and returns connection handle.
 
-    Arguments:
+    Args:
         - path (str): Path to database file
 
     Returns:
@@ -70,7 +68,7 @@ def open_db_file(path: str) -> sqlite3.Connection:
 def create_db_file(path: str) -> bool:
     """Creates a new database.
 
-        Arguments:
+        Args:
             - path (str): Path to database file
 
         Returns:
@@ -88,8 +86,8 @@ def create_db_file(path: str) -> bool:
     try:
         with open(path, 'w+', encoding='utf-8') as handle:
             handle.close()
-    except IOError as e:
-        logger.error("Unable to create database %s: %s", path, e)
+    except IOError as err:
+        logger.error("Unable to create database %s: %s", path, err)
         raise
 
     return True
@@ -101,16 +99,17 @@ def create_database(db_handle: sqlite3.Connection,
     """
     Creates database for eyebold.
 
-    Arguments:
+    Args:
         - db_handle (sqlite3.Connecton): Connection to database
         - tsv_file (str): Path to tsv_file
         - datapackage (str): Path to datapackage file
         - marker_code (str): Marker code to use
 
-    Returns: True on success
+    Returns:
+        True on success
 
     Raises:
-        ValueError: If files do not exist.
+        ValueError: If some file does not exist.
     """
 
     logger.info("Starting to build a new database...")
@@ -133,8 +132,8 @@ def create_database(db_handle: sqlite3.Connection,
     try:
         db_handle.execute(command)
 
-    except sqlite3.Error as e:
-        logger.critical("Unable to create database: %s", e)
+    except sqlite3.Error as err:
+        logger.critical("Unable to create database: %s", err)
         logger.info("Command: %s", command)
         return False
 
@@ -148,9 +147,9 @@ def create_database(db_handle: sqlite3.Connection,
     db_handle.execute(idx_cmd)
     db_handle.commit()
 
-    batch_size = 1000000
     logger.info("Created tables for new database...")
-    logger.info("Inserting data into new database with a batch size of %s.", batch_size)
+    logger.info("Inserting data into new database with a batch size of %s.",
+                const.BUILD_CHUNK_SIZE)
 
     # Read datapackage file and insert tsv_data:
     tables = TsvParser(tsv_file, marker_code, parser_dict)
@@ -164,7 +163,9 @@ def create_database(db_handle: sqlite3.Connection,
             elif table_name == "specimen":
                 table2_batch.append(row)
 
-            if len(table1_batch) == batch_size or len(table2_batch) == batch_size:
+            if (len(table1_batch) == const.BUILD_CHUNK_SIZE or
+                len(table2_batch) == const.BUILD_CHUNK_SIZE):
+
                 logger.info("Inserting batch into database.")
                 _insert_batch(db_handle, "processing_input", table1_batch)
                 _insert_batch(db_handle, "specimen", table2_batch)
@@ -184,6 +185,16 @@ def create_database(db_handle: sqlite3.Connection,
 def _insert_batch(db_handle: sqlite3.Connection,
                   table_name: str,
                   batch: List[Dict[str, str]]) -> bool:
+    """ Inserts a batch of data into database
+
+        Args:
+            - db_handle (sqlite3.Connection): Connection to database
+            - table_name (str): Name of table
+            - batch (List[Dict[str, str]]): List of dictionaries with data
+
+        Returns:
+            True on success, False otherwise
+    """
 
     try:
         columns = ', '.join(batch[0].keys())
@@ -196,16 +207,24 @@ def _insert_batch(db_handle: sqlite3.Connection,
         db_handle.commit()
         return True
 
-    except sqlite3.Error as e:
-        logger.critical("Unable to insert data in processing_input: %s", e)
+    except sqlite3.Error as err:
+        logger.critical("Unable to insert data in processing_input: %s", err)
         logger.critical("Command: %s", command)
         logger.critical("Values: %s", values)
         db_handle.rollback()
         #db_handle.close()
         return False
 
-def _create_table( db_handle: sqlite3.Connection, command: CreateCommands) -> bool:
-    """ Creates a table with command"""
+def _create_table(db_handle: sqlite3.Connection, command: CreateCommands) -> bool:
+    """ Creates a table with a provided command
+
+        Args:
+            - db_handle (sqlite3.Connection): Connection to database
+            - command (CreateCommands): Command to execute
+
+        Returns:
+            True on success, False otherwise
+    """
 
     try:
         cursor = db_handle.cursor()
@@ -213,82 +232,23 @@ def _create_table( db_handle: sqlite3.Connection, command: CreateCommands) -> bo
         db_handle.commit()
         return True
 
-    except sqlite3.Error as e:
-        logger.error("An error occurred: %s", e)
+    except sqlite3.Error as err:
+        logger.error("An error occurred: %s", err)
         logger.info("Perfoming database rollback...")
         db_handle.rollback()
         return False
 
-def _generate_insert_statement(table_name: str, data: dict) -> Tuple[str, Tuple[Any]]:
-    """ Generates inset statments for sql"""
-
-    warnings.warn("Function will be removed.", DeprecationWarning)
-    columns = ', '.join(data.keys())
-    placeholders = ', '.join(['?' for _ in data])
-    values = tuple(data.values())
-
-    sql = f'INSERT INTO {table_name} ({columns}) VALUES ({placeholders})'
-
-    return sql, values
-
-def create_in_tables(db_handle: sqlite3.Connection,
-                     name_list: List[str],
-                     layout_dict: Any) -> None:
-    """Creates tables from a single column layout template.
-
-    Args:
-        db_handle (sqlite3.Connection): SQLite3 database connection handle.
-        name_list (List[str]): List of table names to be created.
-        layout_dict (List[ColumnInfo]): List containing the schema for all tables.
-    """
-
-    warnings.warn("Function will be removed.", DeprecationWarning)
-    cursor = db_handle.cursor()
-
-    try:
-        for table_name in name_list:
-            # Start constructing the CREATE TABLE statement
-            create_table_query = f"CREATE TABLE {table_name} ("
-
-            # Add column definitions
-            column_definitions = []
-            primary_keys = []
-            for column in layout_dict:
-                column_def = f"{column.col_name} {column.data_format}"
-                column_definitions.append(column_def)
-                if column.is_primary:
-                    primary_keys.append(column.col_name)
-
-            # Combine column definitions and primary keys
-            create_table_query += ", ".join(column_definitions)
-            if primary_keys:
-                create_table_query += f", PRIMARY KEY ({', '.join(primary_keys)})"
-
-            create_table_query += ");"
-
-            # Execute the CREATE TABLE statement
-            cursor.execute(create_table_query)
-
-        # Commit the changes
-        db_handle.commit()
-    except sqlite3.Error as e:
-        print(f"An error occurred: {e}")
-        db_handle.rollback()
-    finally:
-        # Close the cursor
-        cursor.close()
-
-
-def insert_updates(db_file: str, tsv_file: str, datapackage: str, marker: str) -> Tuple[List[int], List[Tuple[int,int]]]:
-    """ Creates a new, remporyary table to store potential updates.
+def insert_updates(db_file: str, tsv_file: str, datapackage: str,
+                   marker: str) -> Tuple[List[int], List[Tuple[int,int]]]:
+    """ Creates a new, temporary table to store potential updates.
 
         Args:
-            db_file (str): Path to database file.
-            tsv_file (str): Path to TSV file.
-            datapackage (str): Path to datapackage file.
+            - db_file (str): Path to database file.
+            - tsv_file (str): Path to TSV file.
+            - datapackage (str): Path to datapackage file.
 
         Returns:
-            List of specimen IDs that have been updated.
+            Lists with new and updated specimen ids.
     """
 
     if not file_exist(tsv_file):
@@ -310,7 +270,7 @@ def insert_updates(db_file: str, tsv_file: str, datapackage: str, marker: str) -
         logger.critical('Unexpected problems reading datapackage file...')
         raise ValueError('Unable to process datapackage file.')
 
-    logger.info("Inserting updated infos with a batch size of %s.", INSERT_BATCH_SIZE)
+    logger.info("Inserting updated infos with a batch size of %s.", const.UPDATE_CHUNK_SIZE)
 
     # Read datapackage file and insert tsv_data:
     possible_updates = TsvUpdateParser(tsv_file, marker, parser_dict)
@@ -320,23 +280,24 @@ def insert_updates(db_file: str, tsv_file: str, datapackage: str, marker: str) -
 
     table_batch = []
     check_cmd = "SELECT gbif_key, hash FROM specimen WHERE specimenid = ?"
-    #ToDo: Change this whole process to work on larger batches.
-    for id, hash, row in possible_updates:
 
-        cursor.execute(check_cmd, (id,))
+    #ToDo: Chanke this to work on batches...
+    for id_, hash_, row in possible_updates:
+
+        cursor.execute(check_cmd, (id_,))
         result = cursor.fetchone()
 
         if result:
-            if hash != result[1]:
-                updated_ids.append([id, result[0]])
+            if hash_ != result[1]:
+                updated_ids.append([id_, result[0]])
             else:
                 continue
         else:
-            new_ids.append(id)
+            new_ids.append(id_)
 
         table_batch.append(row)
 
-        if len(table_batch) == INSERT_BATCH_SIZE:
+        if len(table_batch) == const.UPDATE_CHUNK_SIZE:
             logger.info("Inserting batch into database.")
             _insert_batch(db_handle, "specimen", table_batch)
 

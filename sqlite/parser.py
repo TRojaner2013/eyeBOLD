@@ -1,20 +1,23 @@
 """ This module contains information to parse the .tsv database
     provided by bold into a sqlite table.
+
+    ToDo: Restructure this module and moves some parts to common constants.
 """
 
+import copy
 import csv
+from dataclasses import dataclass
+from datetime import datetime
+import hashlib
 import json
 import logging
-import copy
-import kgcpy # type: ignore
-
-import hashlib
-
-from dataclasses import dataclass
 from typing import List, Dict, Any, Tuple, Callable
-from datetime import datetime
 
 from common.helper import file_exist, parse_date
+import common.constants as const
+
+import kgcpy # type: ignore
+
 
 logger = logging.getLogger(__name__)
 
@@ -22,29 +25,32 @@ logger = logging.getLogger(__name__)
 # SQL-Databases
 @dataclass
 class ColumnInfo():
-    """ Defines Database info"""
-    index: int
-    col_name: str
-    parser: callable
-    data_format: str
-    is_primary: bool
-    uses_idx: bool
+    """ Dataclass modeling a database column introduced by BOLD """
+    index: int # Index of the column in the tsv file
+    col_name: str # Name of the column
+    parser: callable # Parser function for data
+    data_format: str # Data format in SQL
+    is_primary: bool # Is column primary key?
+    uses_idx: bool # Should column be indexed?
 
 @dataclass
 class GbifName:
-    """ Dataclass representing parsed named from GBIF Database. """
-    old_name: str
-    rank: str
-    result: dict
-    insert_dict: dict
-    specimenids: List[int]
+    """ Dataclass representing parsed names from GBIF query """
+    old_name: str # Original name
+    rank: str # Taxonomic rank
+    result: dict # Result from GBIF query
+    insert_dict: dict # Dictionary for SQL insert
+    specimenids: List[int] # List of specimenids to update
 
     def to_sql_command(self) -> List[Tuple[str, int]]:
-        """Returns SQL update command for instance"""
+        """ Returns SQL update command for instance
+
+        Returns:
+            List[Tuple[str, int]]: List of SQL commands and specimenids
+        """
         update_columns = []
         parameters = []
         checks_value = None
-        max_varialbe_count = 950 # Make sure to keep this below 999 to account for update_columns andn not just specimenids
         commands = []
 
         for column, value in self.insert_dict.items():
@@ -65,8 +71,8 @@ class GbifName:
             return commands
 
         common_parameters = copy.deepcopy(parameters)
-        for i in range(0, len(self.specimenids), max_varialbe_count):
-            batch = self.specimenids[i:i + max_varialbe_count]
+        for i in range(0, len(self.specimenids), const.SQL_SAVE_NUM_VARS):
+            batch = self.specimenids[i:i + const.SQL_SAVE_NUM_VARS]
             placeholders = ', '.join(['?'] * len(batch))
             command = f"""
                 UPDATE specimen
@@ -76,10 +82,12 @@ class GbifName:
             parameters.extend(batch)
             assert command.count('?') == len(parameters)
             commands.append((command, parameters))
-            parameters = copy.deepcopy(common_parameters)  # Reset parameters for the next batch
+            # Reset parameters for the next batch
+            parameters = copy.deepcopy(common_parameters)
 
         return commands
 
+# Defines the mapping from BOLD DB to SQL DB
 DB_MAP = {
     'processid': 'processid',
     'sampleid': 'sampleid',
@@ -159,38 +167,41 @@ DB_MAP = {
 }
 
 # Defines all columns used as primary key
+# Add primary key columns here, max. one column
 PRIMARY_MAP = {
     "specimenid": True
 }
 
+# Defines all columns that should be indexed
+# Add indexing for useful columns here
 INDEXING_MAP = {
     'none': True
 }
 
 # Defines all columns that are not allowed to be NULL
+# Add columns that are mandatory here
 NOT_NULL_MAP = {
     'specimenid': True,
     'nuc': True
 }
 
 # Defines parser for data in BOLD DB
+# Add more parser functions if needed
 DB_PARSERS = {
     "default": lambda value: str(value), # Fallback to string
     "string:date": parse_date,
     "float": lambda value: float(value),
     "number": lambda value: int(value),
     "integer": lambda value: int(value),
-    # ToDo: Add integer etc.
 }
 
-# Manual overwrite functions for data in BOLD DB
-DB_PARSERS_M_OVERRIDE = {
-    'processid': lambda value: value
-}
-
-# ToDo: Add special attributes e.g. not null.
+# # Manual overwrite functions for data in BOLD DB
+# DB_PARSERS_M_OVERRIDE = {
+#     'processid': lambda value: value
+# }
 
 # Defines datatypes to use in sql database
+# key: BOLD data type, value: SQL data type
 SQL_TYPES = {
     "default": "STRING",
     "string": "STRING",
@@ -202,6 +213,8 @@ SQL_TYPES = {
     "char": "CHAR"
 }
 
+# Defines map from taxomnomy rank to SQL column
+# Might be replaced with DB_MAP in the future
 TAXONOMY_MAP = {
     'kingdom':      'taxon_kingdom',
     'phylum':       'taxon_phylum',
@@ -215,6 +228,8 @@ TAXONOMY_MAP = {
     'subspecies':   'taxon_subspecies'
 }
 
+# Defines map from taxonomy rank to integer
+# Needed to create a taxonomic hierarchy
 TAXONOMY_TO_INT = {
     'kingdom':       1,
     'phylum':        2,
@@ -228,6 +243,8 @@ TAXONOMY_TO_INT = {
     'subspecies':   10
 }
 
+# Defines map from integer to taxonomy rank
+# Needed to create a taxonomic hierarchy
 INT_TO_TAXONOMY = {
     1:   'kingdom',
     2:   'phylum',
@@ -240,8 +257,9 @@ INT_TO_TAXONOMY = {
     9:   'species',
     10:  'subspecies'
 }
-
-REV_AXONOMY_MAP = {
+# Defines map from SQL column to taxonomy rank
+# Might be replaced with DB_MAP in the future
+REV_TAXONOMY_MAP = {
     'taxon_kingdom':    'kingdom',
     'taxon_phylum':     'phylum',
     'taxon_class':      'class',
@@ -253,12 +271,15 @@ REV_AXONOMY_MAP = {
     'taxon_species':    'species',
     'taxon_subspecies': 'subspecies'
 }
+
 def _parse_database_layout(json_data: str) -> Tuple[List[ColumnInfo], Dict[str, Callable]]:
-    """ Returns name of columns for database
+    """ Creates a layout for the database from the json data
 
         Args:
+            - json_data (str): The json data to parse
 
         Returns:
+            A list of column information and a parser dictionary
 
         Raises:
             ValueError: On wrong format or illegal data
@@ -270,11 +291,6 @@ def _parse_database_layout(json_data: str) -> Tuple[List[ColumnInfo], Dict[str, 
 
     for resource in resources:
         schema_fields = resource.get("schema", {}).get("fields", [])
-
-        # First sanity check:
-        # if len(schema_fields) != len(DB_MAP.keys()):
-        #     raise ValueError(f"Json file has {len(DB_MAP.keys()) }"\
-        #                         f"columns, expected: {len(schema_fields)}")
 
         for field in schema_fields:
             name = field.get("name")
@@ -312,10 +328,15 @@ def _parse_database_layout(json_data: str) -> Tuple[List[ColumnInfo], Dict[str, 
 
 
 def get_data_layout(file: str) -> Tuple[List[ColumnInfo], Dict[str, Callable]] | bool:
-    """ Returns column names for database """
+    """ Returns a database layout with parsers for json file
 
-    # ToDo: Better, more consistent return type
+        Args:
+            - file (str): The json datapackage file to parse
 
+        Returns:
+            A list of column information and a parser dictionary;
+            False on error
+    """
     try:
         with open(file, 'r', encoding='utf-8') as handle:
             json_data = json.load(handle)
@@ -331,8 +352,15 @@ def get_data_layout(file: str) -> Tuple[List[ColumnInfo], Dict[str, Callable]] |
         return False
 
 def get_create_command(table_name: str, layout: List[ColumnInfo]) -> str:
-    #ToDo: NOT NULL data enforcement
-    """ Returns the table layout to use """
+    """ Returns a create table command for the layout provided
+
+        Args:
+            - table_name (str): The name of the table
+            - layout (List[ColumnInfo]): The layout of the table
+
+        Returns:
+            str: SQL command to create table
+    """
     column_definitions = []
     indices = []
 
@@ -353,11 +381,23 @@ def get_create_command(table_name: str, layout: List[ColumnInfo]) -> str:
     return create_table_sql
 
 class TsvParser():
-    """ TSV Parser for BOLD """
+    """ TSV Parser for BOLD database"""
 
     def __init__(self, tsv_file: str, marker_code: str,
-                 data_parser: dict) -> None:
+                 data_parser: dict) -> 'TsvParser':
+        """ Crates instance of TsvParser
 
+            Args:
+                - tsv_file (str): tsv file to parse
+                - marker_code (str): marker code to use
+                - data_parser (dict): dict of parser functions to use
+
+            Raises:
+                - ValueError: If file does not exist
+
+            Returns:
+                TsvParser: Instance of TsvParser
+        """
         if not file_exist(tsv_file):
             raise ValueError(f"File {tsv_file} does not exist")
 
@@ -376,20 +416,40 @@ class TsvParser():
 
     @staticmethod
     def _null_data(row: str, value: str) -> bool:
-        """ Returns True if a mandatory field is NULL """
+        """ Checks if mandatory data is NULL
+
+            Args:
+                - row (str): The row name
+                - value (str): The value to check
+
+            Returns:
+                bool: True if value is None
+        """
         if NOT_NULL_MAP.get(row, False):
             return value is None
 
         return False
 
     def _transform_value(self, value: Any, pars_func: callable) -> Any:
-        """ Transform the value for SQL insertion """
+        """ Transofrms value into correct format for SQL
+
+            Note:
+                If the value is None, empty or 'None' it is returned as None
+
+            Args:
+                - value (Any): The value to transform
+                - pars_func (callable): The parser function to use
+
+            Returns:
+                Any: The transformed value or None
+        """
         if (value is None) or (value.strip() == '') or (value.strip() == 'None'):
             return None
 
         return pars_func(value)
 
     def __iter__(self) -> 'TsvParser':
+        """ Returns iterator object for parsing data"""
         return self
 
     def __next__(self) -> Dict[str, Dict[str, str]]:
@@ -428,7 +488,8 @@ class TsvParser():
                 # Check if any mandatory information is missing
                 # E.g. we need a sequence (nuc) and a specimenid.
                 # if either of these entries is NULL, we discard the record
-                transformed_row = {key: self._transform_value(value, self._data_parser.get(key, lambda x: x)) for key, value in row.items()}
+                transformed_row = {key: self._transform_value(value,
+                                                              self._data_parser.get(key,lambda x: x)) for key, value in row.items()}
                 null_checks = {self._null_data(key, value)
                                for key, value in transformed_row.items()}
 
@@ -437,14 +498,14 @@ class TsvParser():
                     continue
 
                 # Manually add hash and update indication.
-                values_for_hash = [str(value) for value in transformed_row.values()]
+                hash_in = [str(value) for value in transformed_row.values()]
 
                 # Fill information for Table specimin
                 specimen_rows = {column: transformed_row[column] for column in
                                  column_names if column in transformed_row}
 
                 specimen_rows['nuc_raw'] = transformed_row['nuc']
-                specimen_rows['hash'] = hashlib.sha256(''.join(values_for_hash).encode()).hexdigest()
+                specimen_rows['hash'] = hashlib.sha256(''.join(hash_in).encode()).hexdigest()
                 specimen_rows['last_updated'] = datetime.today().strftime('%Y-%m-%d')
                 specimen_rows['include'] = False
 
@@ -455,16 +516,17 @@ class TsvParser():
                 if coords is not None:
                     # There is an entry we can process, extract the coordinates
                     # and insert the correct climate zone
-                    lati = transformed_row.get('coord').split(',')[0].strip()[1:] # Remove leading []
-                    long = transformed_row.get('coord').split(',')[1].strip()[:-1] # Remove trailing []
+                    lati = transformed_row.get('coord').split(',')[0].strip()[1:] # Rem leading []
+                    long = transformed_row.get('coord').split(',')[1].strip()[:-1] # Rem trailing []
                     try:
                         lati = float(lati)
                         long = float(long)
                         specimen_rows['kg_zone'] = kgcpy.vectorized_lookupCZ([long], [lati])[0]
                     except ValueError:
-                        logger.critical("Unable to convert coordinates to float: %s, %s", lati, long)
-                        logger.critical("Original coordinates: %s", transformed_row.get('coord'))
-                        pass
+                        logger.critical("Unable to convert coordinates to float: %s, %s",
+                                        lati, long)
+                        logger.critical("Original coordinates: %s",
+                                        transformed_row.get('coord'))
 
                 # Set review to True, so we can simply rewrite row after
                 # checking hash value for changes.
@@ -476,12 +538,25 @@ class TsvParser():
 
         self._file.close()
         raise StopIteration
-    
+
 class TsvUpdateParser():
-    """ Update TSV Parser for BOLD """
+    """ TSV Parser for updating data from BOLD """
 
     def __init__(self, tsv_file: str, marker_code: str,
-                 data_parser: dict) -> None:
+                 data_parser: dict) -> 'TsvUpdateParser':
+        """ Crates instance of TsvParser
+
+            Args:
+                - tsv_file (str): tsv file to parse
+                - marker_code (str): marker code to use
+                - data_parser (dict): dict of parser functions to use
+
+            Raises:
+                - ValueError: If file does not exist
+
+            Returns:
+                TsvParser: Instance of TsvParser
+        """
 
         if not file_exist(tsv_file):
             raise ValueError(f"File {tsv_file} does not exist")
@@ -501,20 +576,40 @@ class TsvUpdateParser():
 
     @staticmethod
     def _null_data(row: str, value: str) -> bool:
-        """ Returns True if a mandatory field is NULL """
+        """ Checks if mandatory data is NULL
+
+            Args:
+                - row (str): The row name
+                - value (str): The value to check
+
+            Returns:
+                bool: True if value is None
+        """
         if NOT_NULL_MAP.get(row, False):
             return value is None
 
         return False
 
     def _transform_value(self, value: Any, pars_func: callable) -> Any:
-        """ Transform the value for SQL insertion """
+        """ Transofrms value into correct format for SQL
+
+            Note:
+                If the value is None, empty or 'None' it is returned as None
+
+            Args:
+                - value (Any): The value to transform
+                - pars_func (callable): The parser function to use
+
+            Returns:
+                Any: The transformed value or None
+        """
         if (value is None) or (value.strip() == '') or (value.strip() == 'None'):
             return None
 
         return pars_func(value)
 
-    def __iter__(self) -> 'TsvParser':
+    def __iter__(self) -> 'TsvUpdateParser':
+        """ Returns iterator object for parsing data"""
         return self
 
     def __next__(self) -> Tuple[str, str, Dict[str, str]]:
@@ -562,14 +657,14 @@ class TsvUpdateParser():
                     continue
 
                 # Manually add hash and update indication.
-                values_for_hash = [str(value) for value in transformed_row.values()]
+                hash_in = [str(value) for value in transformed_row.values()]
 
                 # Fill information for Table specimin
                 specimen_rows = {column: transformed_row[column] for column in
                                  column_names if column in transformed_row}
 
                 specimen_rows['nuc_raw'] = transformed_row['nuc']
-                specimen_rows['hash'] = hashlib.sha256(''.join(values_for_hash).encode()).hexdigest()
+                specimen_rows['hash'] = hashlib.sha256(''.join(hash_in).encode()).hexdigest()
                 specimen_rows['last_updated'] = datetime.today().strftime('%Y-%m-%d')
                 specimen_rows['include'] = False
 
@@ -580,16 +675,17 @@ class TsvUpdateParser():
                 if coords is not None:
                     # There is an entry we can process, extract the coordinates
                     # and insert the correct climate zone
-                    lati = transformed_row.get('coord').split(',')[0].strip()[1:] # Remove leading []
-                    long = transformed_row.get('coord').split(',')[1].strip()[:-1] # Remove trailing []
+                    lati = transformed_row.get('coord').split(',')[0].strip()[1:] # Rem leading []
+                    long = transformed_row.get('coord').split(',')[1].strip()[:-1] # Rem trailing []
                     try:
                         lati = float(lati)
                         long = float(long)
                         specimen_rows['kg_zone'] = kgcpy.vectorized_lookupCZ([long], [lati])[0]
                     except ValueError:
-                        logger.critical("Unable to convert coordinates to float: %s, %s", lati, long)
-                        logger.critical("Original coordinates: %s", transformed_row.get('coord'))
-                        pass
+                        logger.critical("Unable to convert coordinates to float: %s, %s",
+                                        lati, long)
+                        logger.critical("Original coordinates: %s",
+                                        transformed_row.get('coord'))
 
                 # Set review to True, so we can simply rewrite row after
                 # checking hash value for changes.
