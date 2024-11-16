@@ -14,14 +14,14 @@ from pygbif import occurrences as occ # type: ignore # pylint: disable=import-er
 
 from sqlite.parser import GbifName, TAXONOMY_MAP, TAXONOMY_TO_INT, INT_TO_TAXONOMY
 from sqlite.Bitvector import BitIndex, ChecksManager
+from common import constants as const
 
 logger = logging.getLogger(__name__)
 
-# ToDo: Move these to common.constants?
-GBIF_LOC_QUERY_LIMIT = 101000
-
 def _evaluate_verbose_response(rank: str, result: Dict) -> Dict:
     """ Evaluates verbose responses from GBIF
+
+        Note: This fuction is deprecated and should not be used.
 
         Args:
             - rank (str): Rank of the query
@@ -231,7 +231,7 @@ def handle_error(response: requests.Response, batch_index: int) -> None:
                 response.status_code, response.text)
     raise ValueError("Request failed")
 
-def _gibf_status_handler(req_id: int, retries: int=3) -> dict:
+def _gbif_status_handler(req_id: int, retries: int=3) -> dict:
     """ Handles status requests to GBIF
 
         Args:
@@ -252,12 +252,12 @@ def _gibf_status_handler(req_id: int, retries: int=3) -> dict:
             # Time-out error, retry after waiting for a while
             logger.debug('Status update failed, retrying in 30 seconds.')
             time.sleep(30)
-            return _gibf_status_handler(id, retries-1)
+            return _gbif_status_handler(id, retries-1)
 
         logger.warning('Download failed, please run review command.')
         logger.debug(('Download failed.\n\t'
                        'Error: %s') , err)
-        raise ValueError("Download failed")
+        raise ValueError("Download failed") from err
 
 def _gbif_download_handler(req_id: int, file_path: str, retries: int=3) -> bool:
     """ Handles download requests to GBIF
@@ -285,8 +285,17 @@ def _gbif_download_handler(req_id: int, file_path: str, retries: int=3) -> bool:
         logger.warning('Download failed, please run review command.')
         logger.debug(('Download failed.\n\t'
                        'Error: %s') , err)
-        raise ValueError("Download failed")
+        raise ValueError("Download failed") from err
 
+def get_locations(keys: List[int], batch_size: int) -> Generator[Tuple[str, List[int]],
+                                                                     Any, Any]:
+    """ Downloads locations from GBIF using its API or SQL queries"""
+    if const.USE_GBIF_SQL:
+        # NOTE: This call works only if gbif account is registered as user to test
+        # SQL-Download feature. Reach out to GBIF to get access!
+        return get_locations_sql(keys, batch_size)
+
+    return get_locations_api(keys, batch_size)
 
 def get_locations_sql(keys: List[int], batch_size: int) -> Generator[Tuple[str, List[int]],
                                                                      Any, Any]:
@@ -309,7 +318,7 @@ def get_locations_sql(keys: List[int], batch_size: int) -> Generator[Tuple[str, 
     gbif_pwd = os.getenv('GBIF_PWD')
     api_url = "https://api.gbif.org/v1/occurrence/download/request"
 
-    query_size = min(batch_size, GBIF_LOC_QUERY_LIMIT)
+    query_size = min(batch_size, const.GBIF_LOC_QUERY_LIMIT)
     # Note:
     # GBIF displays public information for all downloads.
     # Avoid using a real account for this!
@@ -334,12 +343,12 @@ def get_locations_sql(keys: List[int], batch_size: int) -> Generator[Tuple[str, 
             "sql": sql_query
         }
 
-        # ToDo: Set a reasonable timeout here
         response = requests.post(
             api_url,
             auth=(gbif_user, gbif_pwd),
             headers={"Content-Type": "application/json"},
-            data=json.dumps(json_payload)
+            data=json.dumps(json_payload),
+            timeout=const.GBIF_REQU_TIMEOUT
         )
         if response.status_code == 201:
             req_id = response.text.splitlines()[-1]  # Download key is on the last line
@@ -347,7 +356,7 @@ def get_locations_sql(keys: List[int], batch_size: int) -> Generator[Tuple[str, 
         else:
             handle_error(response, i)
 
-        meta = _gibf_status_handler(req_id)
+        meta = _gbif_status_handler(req_id)
         while meta["status"] != "SUCCEEDED":
             # We need to check if the request was killed.
             if meta["status"] == "KILLED":
@@ -356,7 +365,7 @@ def get_locations_sql(keys: List[int], batch_size: int) -> Generator[Tuple[str, 
 
             # logger.info("Wating download... Metainfo:\n%s", meta['status'])
             time.sleep(60)
-            meta = _gibf_status_handler(req_id)
+            meta = _gbif_status_handler(req_id)
             #meta = occ.download_meta(req_id)
 
         # The time has come to download the file.
@@ -365,7 +374,7 @@ def get_locations_sql(keys: List[int], batch_size: int) -> Generator[Tuple[str, 
         _gbif_download_handler(req_id, file_path)
         yield (os.path.join(file_path, f"{req_id}.zip"), batch)
 
-def get_locations(keys: List[int], batch_size: int) -> Generator[Tuple[str, List[int]], Any, Any]:
+def get_locations_api(keys: List[int], batch_size: int) -> Generator[Tuple[str, List[int]], Any, Any]:
     """ Downloads locations from GBIF using its API
 
         Note:
@@ -382,7 +391,7 @@ def get_locations(keys: List[int], batch_size: int) -> Generator[Tuple[str, List
             - Tuple[str, List[int]]: Path to the downloaded file and list of keys in the batch
     """
 
-    query_size = min(batch_size, GBIF_LOC_QUERY_LIMIT)
+    query_size = min(batch_size, const.GBIF_LOC_QUERY_LIMIT)
     # Note:
     # GBIF displays public information for all downloads.
     # Avoid using a real account for this!
