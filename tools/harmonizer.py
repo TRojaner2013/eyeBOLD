@@ -90,14 +90,17 @@ class RaxTaxer():
 
     def _clean(self) -> None:
         """ Cleans up the raxtax inputs and the output directory """
-        if os.path.exists(self._out_path):
-            shutil.rmtree(self._out_path)
 
-        if os.path.exists(self._query_file):
-            os.remove(self._query_file)
+        if const.RAXTAX_CLEANUP_OUTPUT:
+            if os.path.exists(self._out_path):
+                shutil.rmtree(self._out_path)
 
-        if os.path.exists(self._db_in_file):
-            os.remove(self._db_in_file)
+        if const.RAXTAX_CLEANUP_INPUT:
+            if os.path.exists(self._query_file):
+                os.remove(self._query_file)
+
+            if os.path.exists(self._db_in_file):
+                os.remove(self._db_in_file)
 
 
     def run(self) -> List[int]:
