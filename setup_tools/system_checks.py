@@ -3,7 +3,8 @@
 import os
 import logging
 import subprocess
-from typing import List
+
+#import common.constants as const
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ def check_env() -> int:
     if os.environ.get('GBIF_USER', None) is None:
         logger.error("GBIF_USER is not set! Please set environmental variable!")
         result |= 1 << 0
-    
+
     if os.environ.get('GBIF_PWD', None) is None:
         logger.error("GBIF_PWD is not set! Please set environmental variable!")
         result |= 1 << 1
@@ -48,8 +49,14 @@ def check_raxtax_bin() -> int:
     except subprocess.CalledProcessError as exc:
         logging.error("Unable to execute RaxTax: %s", exc)
         return False
-    
+
 def startup_checks() -> int:
+    """ Run all startup checks
+
+        Returns:
+            int: 0 on success, error code otherwise
+    """
+
     result = check_env()
     if result:
         logging.info("System Check: FAIL")
@@ -61,7 +68,7 @@ def startup_checks() -> int:
         logging.info("System Check: FAIL")
         logging.error("RaxTex check failed with code: %s", result)
         return result
-    
+
     logging.info("System Check: PASS")
 
     return 0

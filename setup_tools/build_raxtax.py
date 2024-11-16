@@ -6,6 +6,8 @@ import platform
 import os
 import hashlib
 
+import common.constants as const
+
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 TEST_FILE = os.path.join(ROOT_DIR, "raxtax_test.fasta")
 
@@ -17,31 +19,35 @@ OUT_SHA256 = "d66cbe2db3d751fea6c07a8c8e6801d26a2e5ba69336ce685a9e02fe4b0b4799"
 TSV_SHA256 = "edc5d795a8c903589e49d606b7b789a686db3a4b72372401c49eac1e97aac108"
 
 def _build() -> bool:
-    """Builds RaxTax with cargo
+    """ Builds RaxTax with cargo
 
-        This function calles cargo build with reccomanded flags.
-        Cargo must be installed and must be available as command on target machine.
+        Note:
+            This function calles cargo build with reccomanded flags.
+            Cargo must be installed and must be available as command on target machine.
+
+        Returns:
+            bool: True if build was successful, False otherwise
     """
     try:
         subprocess.run(["cargo", "build", "--profile=ultra"],
                        cwd=os.path.join(ROOT_DIR, "..", "raxtax"), check=True)
 
         return True
-    except subprocess.CalledProcessError as exc:
-        print(f"Error building RaxTax: {exc}")
+    except subprocess.CalledProcessError as err:
+        print(f"Error building RaxTax: {err}")
         return False
 
 def _copy_bin() -> None:
-    """Copies binary file to new location
+    """ Copies binary file to new location
 
-        This function moves the raxtax binary file to a known location so that
-        eyeBOLD is able to use it.
+        Note:
+            This function moves the raxtax binary file to a known location so that
+            eyeBOLD is able to use it.
     """
     src_dir = os.path.join(ROOT_DIR, "..", "raxtax", "target", "ultra")
     dst_dir = os.path.join(ROOT_DIR, "..")
 
-    #ToDo: Make sure to use a defined constant as binary name here
-    binary_name = "raxtax"
+    binary_name = const.RAXTAX_CMD
 
     if platform.system() == "Windows":
         binary_name += ".exe"
@@ -54,11 +60,15 @@ def _copy_bin() -> None:
 def _check_bin() -> bool:
     """ Checks raxtax binary 
 
-        This function calls raxtax binarz twice and creates two output files.
-        First one creates an .out file, the second run a .tsv files.
+        Note:
+            This function calls raxtax binarz twice and creates two output files.
+            First one creates an .out file, the second run a .tsv files.
 
-        Then we check if the files are identical to reference files using a 
-        SHA256 hash.
+            Then we check if the files are identical to reference files using a 
+            SHA256 hash.
+
+        Returns:
+            bool: True if files are identical, False otherwise
     """
     try:
         subprocess.run(["raxtax", "-d", TEST_FILE, "-i", TEST_FILE,
@@ -86,10 +96,11 @@ def _check_bin() -> bool:
         return False
 
 def _clean() -> None:
-    """Clean build artrfacts and output files.
+    """ Clean build artrfacts and output files.
 
-        This cleans all building artefacts using cargo clean and removes output
-        files created by calling raxtex.
+        Note:
+            This cleans all building artefacts using cargo clean and removes output
+            files created by calling raxtex.
     """
     try:
         subprocess.run(["cargo", "clean"],
@@ -103,7 +114,7 @@ def _clean() -> None:
 
 if __name__ == "__main__":
 
-    print("Building RAxTax...")
+    print("Building RaxTax...")
 
     if not _build():
         print("Failed to build RAxTax.")
