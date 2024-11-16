@@ -19,6 +19,11 @@ In order to work with eyeBOLD you will need the following things:
 
 When we provide some time estimations, these are taken from a machine with 32 GB Ram and a Intel Xeon W-10885M CPU with high-speed fiber internet.
 
+**Edit constants in common.constant**.
+You will need to edit some constants in order to increase performance (e.g. Number of physical cores).
+You can edit some of the build settings that provide trade-offs between speed/memory/diskspace in common.constants as well.
+If your GBIF account is not accepted to the SQL beta, you need to set the respective flag to false.
+Feel free to take a look at the settings and experiment a bit with what works best for you.
 # Setup
 
 In order to use eyeBOLD we need to set up some things in advance.
