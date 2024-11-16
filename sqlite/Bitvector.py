@@ -20,9 +20,9 @@ class BitIndex(Enum):
 
     SELECTED =               0 # Selected for further processing
     NAME_CHECKED =           1 # Name checked against GIBF
-    DUPLICATE =              2 # Sequence is a dubliate or subsequence
+    DUPLICATE =              2 # Sequence is a duplicate or subsequence
     FAILED_LENGTH =          3 # Sequence failed length check
-    HYBRID =                 4 # Hybrid status according to regex check
+    HYBRID =                 4 # Hybrid according to regex check
     INCL_KINGDOM =           5 # Verified kingdom with GBIF
     INCL_PHYLUM =            6 # Verified phylum with GBIF
     INCL_CLASS =             7 # Verified class with GBIF
@@ -32,7 +32,7 @@ class BitIndex(Enum):
     INCL_TRIBE =            11 # Verified tribe with GBIF (NOT IMPLEMENTED)
     INCL_GENUS =            12 # Verified genus with GBIF
     INCL_SPECIES =          13 # Verified species with GBIF
-    INCL_SUBSPECIES =       14 # Verified subspecies with GBIF (NOT IMPLEMENTED)
+    INCL_SUBSPECIES =       14 # Verified subspecies with GBIF
     BAD_CLASSIFICATION =    15 # Misclassification according to RaxTax
     NAME_FAILED =           16 # GBIF Name check provided no match
     LOC_CHECKED =           17 # Location checked against GBIF
@@ -129,7 +129,7 @@ class BitIndex(Enum):
 
 #     # Data extracted from bitvector
 #     selected: bool = field(init=False)
-#     dublicate: bool = field(init=False)
+#     duplicate: bool = field(init=False)
 #     hybrid: bool = field(init=False)
 #     name_checked: bool = field(init=False)
 
@@ -171,7 +171,7 @@ class BitIndex(Enum):
 
 #         if self.selected:
 #             bitvector |= bit_mask
-#         if self.dublicate:
+#         if self.duplicate:
 #             bitvector |= bit_mask << 1
 #         if self.hybrid:
 #             bitvector |= bit_mask << 2
