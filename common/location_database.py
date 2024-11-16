@@ -19,7 +19,7 @@ class LocationDatabase():
     # ToDo: Find a better way to store table names
     TABLE_NAME = 'climate_data'
 
-    def __init__(self, db_file: str):
+    def __init__(self, db_file: str) -> 'LocationDatabase':
         """ Class constructor for class LocationDatabase
 
             Args:
@@ -39,6 +39,7 @@ class LocationDatabase():
             self._db_handle = None
 
     def __del__(self) -> None:
+        """ Destructor for class LocationDatabase """
         self._close()
 
     def _close(self) -> None:
@@ -103,7 +104,11 @@ class LocationDatabase():
             return False, "Unable to perform actions on database."
 
     def close(self) -> None:
-        """ Closes database after commiting all data"""
+        """ Closes database after commiting all data
+
+            Raises:
+                AttributeError: If database is not valid or not open
+        """
 
         if not self._valid_db:
             raise AttributeError

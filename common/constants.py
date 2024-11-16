@@ -7,7 +7,13 @@ USE_GBIF_SQL = True # Use GBIF SQL Downloads
 USE_GPU = False # Use GPU for speedup
 
 # BUILD RELATED
-INSERT_CHUNIK_SIZE = 1000
+BUILD_CHUNK_SIZE = 1000000
+UPDATE_CHUNK_SIZE = 10000
+
+# TRACKER RELATED
+TRACKER_DOWNLOAD_CHUNK_SIZE = 1500
+TRACKER_CHUNK_SIZE = 1000000
+TRACKER_INSERT_CHUNK_SIZE = 900 # Keep below SQL_SAVE_NUM_VARS
 
 NUM_CPUS = 1 # Number of CPUs
 PHYSICAL_CORES_PER_CPU = 8 # Physical cores per CPU
@@ -46,9 +52,16 @@ RAXTAX_ARGS = []
 RAXTAX_DB_IN = os.path.join(".", "raxtax_db.fasta")
 RAXTAX_QUERY_IN = os.path.join(".", "raxtax_query.fasta")
 RAXTAX_OUT = "./"
+RAXTAX_BATCH_SIZE = 10000
+RAXTAX_SCORE_THRESHOLD = 0.9
 
 # SQL RELATED
 
 # Max. number of variavles for SQL commands.
 # Make sure this works with your SQL implementation.
 SQL_SAVE_NUM_VARS = 950
+
+# GBIF RELATED
+GBIF_NAME_QUERY_THREADS = 30 # Number of threads for name query
+GBIF_LOC_QUERY_LIMIT = 101000
+GBIF_REQU_TIMEOUT = 120 # Timeout for request

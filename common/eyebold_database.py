@@ -4,7 +4,7 @@ from datetime import datetime
 import logging
 import sqlite3
 import csv
-from typing import Tuple, Dict, Set, List
+from typing import Tuple, Dict, Set, List, Any
 from enum import Enum
 from collections import defaultdict
 
@@ -30,7 +30,11 @@ class ExportFormats(Enum):
 
     @classmethod
     def from_str(cls, format_str: str):
-        """ Converts a string to the corresponding ExportFormats Enum. """
+        """ Converts a string to the corresponding ExportFormats Enum.
+
+            Args:
+                format_str (str): String representation of the format
+        """
         normalized_str = format_str.strip().upper()
 
         # Map the normalized string to the corresponding Enum value
@@ -54,7 +58,18 @@ class EyeBoldDatabase():
     # ToDo: Find a better spot in sqlite module for table names.
     TABLE_NAME = 'processing_input'
 
-    def __init__(self, db_file: str, marker_code: str, location_db_file: str) -> None:
+    def __init__(self, db_file: str, marker_code: str,
+                 location_db_file: str) -> 'EyeBoldDatabase':
+        """ Constructor for EyeBoldDatabase class
+
+            Args:
+                - db_file (str): Path to database file
+                - marker_code (str): Marker used for database
+                - location_db_file (str): Path to location database file
+
+            Returns:
+                Instance of class EyeBoldDatabase
+        """
 
         self._db_file: str = db_file
         self._loc_db_file: str = location_db_file
@@ -71,9 +86,11 @@ class EyeBoldDatabase():
         self._processes = []
 
     def __del__(self) -> None:
+        """ Destructor for EyeBoldDatabase class """
         self._close()
 
     def _close(self) -> None:
+        """ Closes the database connection """
         if self._db_handle:
             self._db_handle.commit()
             self._db_handle.close()
@@ -85,14 +102,18 @@ class EyeBoldDatabase():
 
             Note: This process is mandatory as we might fail to check all
             names on first try due to e.g. timeout errors.
-         
         """
         if not self._valid_db:
             raise AttributeError
         self.curate()
 
     def update(self, tsv_file: str, datapackage: str) -> None:
-        """ Updates the database with data from new tsv file"""
+        """ Updates the database with data from new tsv file
+
+            Args:
+                - tsv_file (str): Path to new data file
+                - datapackage (str): Path to datapackage file
+        """
 
         if not self._valid_db:
             raise AttributeError
@@ -110,7 +131,6 @@ class EyeBoldDatabase():
             raise FileNotFoundError
 
         logger.info("Starting update process for database %s", self._db_file)
-
 
         # Find all entries that are changed and new
         new_ids, changed_ids =  insert_updates(self._db_file, tsv_file,
@@ -287,7 +307,7 @@ class EyeBoldDatabase():
         return False, "Unable to create Database."
 
     #ToDo: Create a constant for batch_size
-    def invoke_tracker(self, batch_size: int=2000) -> None:
+    def invoke_tracker(self, batch_size: int=const.TRACKER_DOWNLOAD_CHUNK_SIZE) -> None:
         """ Invokes tracker feature to build location database
 
             Args:
@@ -458,7 +478,11 @@ class EyeBoldDatabase():
         self._db_handle.commit()
 
     def close(self) -> None:
-        """ Closes database"""
+        """ Closes database
+
+            Raises:
+                AttributeError: If database is not valid
+        """
 
         if not self._valid_db:
             raise AttributeError
@@ -486,8 +510,19 @@ class EyeBoldDatabase():
             cur.execute(query)
         return cur.fetchall()
 
-    def get_unsanatized_taxonomy_b2t(self, level: str) -> Dict[str, Set]:
-        """Returns all taxonomy data for unsanatized entries at the specified level"""
+    def get_unsanatized_taxonomy_b2t(self, level: str) -> List[Dict[Any, Any]]:
+        """ Returns all taxonomy data for unsanatized entries at the specified level
+
+            Args:
+                - level (str): Taxonomy level
+
+            Returns:
+                List of dictionary with taxonomy data of all unsantized rows at
+                the specified level
+
+            Raises:
+                ValueError: If an invalid level is provided
+        """
 
         levels = ['kingdom', 'phylum', 'class', 'order', 'family', 'genus', 'species', 'subspecies']
 
@@ -539,8 +574,11 @@ class EyeBoldDatabase():
     def get_unsanatized_taxonomy(self) -> Dict[str, Set]:
         """Returns all taxonomy data for unsanatized entries
 
+        Note:
+            This function is deprecated and will be removed in future versions.
+
         Arguments:
-            -db_handle: Database connection handle
+            - db_handle: Database connection handle
 
         Returns:
             Dictionary with taxonomy data of all unsantized rows
@@ -584,7 +622,7 @@ class EyeBoldDatabase():
         """ Exports database file for raxtax
 
             Args:
-                out_file (str): Path where export is saved
+                - out_file (str): Path where export is saved
         """
         cursor = self._db_handle.cursor()
 
@@ -596,16 +634,13 @@ class EyeBoldDatabase():
         cursor.execute(query)
         rows = cursor.fetchall()
 
-        #header = ["checks", "specimenid", "nuc_san", "phylum",
-        #           "class", "order", "family", "genus", "species"]
-
         self._export_fasta_raxtax(rows, out_file)
 
     def _export_raxtax_query_file(self, out_file: str) -> None:
         """ Exports query file for raxtax
 
             Args:
-                out_file (str): Path where export is saved
+                - out_file (str): Path where export is saved
         """
         cursor = self._db_handle.cursor()
 
@@ -658,9 +693,9 @@ class EyeBoldDatabase():
         """ Executes a query and exports the data to out_file in the specified format
 
             Args:
-                queryy (str): SQL Query
-                out_file (str): Path to exported file
-                format_ (ExportFormats): Fortmat of export
+                - queryy (str): SQL Query
+                - out_file (str): Path to exported file
+                - format_ (ExportFormats): Fortmat of export
 
             Raises:
                 ValueError: If an invalid export format is provided
@@ -689,7 +724,7 @@ class EyeBoldDatabase():
         for row in rows:
             print(row)
 
-    def _export_fasta_raxtax(self, rows, out_file) -> None:
+    def _export_fasta_raxtax(self, rows: List[Tuple], out_file: str) -> None:
         """ Exports data in raxtaxs fasta format
 
             Note:
@@ -697,8 +732,8 @@ class EyeBoldDatabase():
                 [checks, specimen-id, sequence, phylum, class, oder, family,
                  genus, species]
             Args:
-                rows (List): Rows to export
-                out_file (str): Path to exported file
+                - rows (List): Rows to export
+                - out_file (str): Path to exported file
         
         """
 
@@ -743,7 +778,7 @@ class EyeBoldDatabase():
                                         file.write(raxtax_string)
 
     #ToDo: implement function
-    def _export_fasta(self, rows: List, out_file: str) -> None:
+    def _export_fasta(self, rows: List[Tuple], out_file: str) -> None:
         """ Exports data in fasta format
         
             Args:
@@ -757,7 +792,7 @@ class EyeBoldDatabase():
         #         checks, specimenid, nuc_raw, phylum, class_, order, family, genus, species = row
 
 
-    def _export_csv(self, rows: List[str], out_file: str, delimiter: str,
+    def _export_csv(self, rows: List[Tuple], out_file: str, delimiter: str,
                     header: List[str]=None) -> None:
         """ Exports the data to a csv file with the specified delimiter
 

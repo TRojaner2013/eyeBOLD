@@ -1,6 +1,4 @@
-"""
-Module implementing helper methods.
-"""
+""" Module implementing helper methods """
 
 from  datetime import datetime
 import os
@@ -9,7 +7,7 @@ def file_exist(path: str) -> bool:
     """ Checks if file at path exists.
 
         Args:
-            path (str): Path to file
+            - path (str): Path to file
 
         Returns:
             True if file exists.
