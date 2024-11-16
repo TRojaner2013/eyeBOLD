@@ -1,15 +1,23 @@
 # eyeBOLD
- BOLD, effortlessly enhanced.
+
+Welcome to the eyeBOLD project - BOLD, effortlessly enhanced.
+Our project aims at providing an automated way to curate the BOLD database.
+Feel free to test and share your results and experiences with us.
+
+This project is a result of my thesis and certainly not yet perfect.
+Therefore, feel free to help with new features, enhancements or just leave feedback :)
 
 # Requirements
+
+In order to work with eyeBOLD you will need the following things:
+
 - BOLD Account
 - GBIF Account
-- Set environmental variables for GBIF or include in .gbif file
-- SKIP EMAIL Option
-- Install rust compiler (cargo)
-- Run setup_tools script to build raxtax
-- DISKSPACE!! (We are talking about a looooot like idk 200 - 300 GB)
-- Time (
+- Good and stable internet connection
+- Diskspace (We recommand at least 200 GB, min. should be aroung roughly 120 GB)
+- A good book or other stuff to do while running the curation process. (Takes several days)
+
+When we provide some time estimations, these are taken from a machine with 32 GB Ram and a Intel Xeon W-10885M CPU with high-speed fiber internet.
 
 # Setup
 
@@ -254,5 +262,4 @@ To mitigate these risks, we strongly recommend using a dedicated GBIF account sp
 * **Use Dummy Credentials:** Alternatively, if a dedicated account is needed but sensitive data isn't involved, create a dummy account with non-functional credentials solely for authentication purposes.
 
 # Updating Submodules
-Updating submodules to new commits/versions implies that proper actions are taken that changes are reflected in this project.
-This includes creating new binaries for RaxTax and updating the packages with manuall installation in pip.
+The commits of the submodules are checked to be working. Feel free to try newer versions at your own risk.
