@@ -287,8 +287,8 @@ def cli_main(*args) -> None:
     # Set logging verbosity
     #ToDo Q1: Make this a function
     if args.verbose == 0:
-        logging.info("Setting logging level to CRITICAL.")
-        logger.setLevel(logging.CRITICAL)
+        logging.info("Setting logging level to INFO.")
+        logger.setLevel(logging.INFO)
     elif args.verbose == 1:
         logging.info("Setting logging level to ERROR.")
         logger.setLevel(logging.ERROR)
