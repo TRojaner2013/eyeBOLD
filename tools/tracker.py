@@ -191,16 +191,22 @@ def _get_kg_zone_vec(data: pd.DataFrame, epsilon=1e-6) -> pd.DataFrame:
 
     helper = data.copy()
 
+    lat_col = 'decimalLatitude'
+    lon_col = 'decimalLongitude'
+    if const.USE_GBIF_SQL:
+        lat_col = 'decimallatitude'
+        lon_col = 'decimallongitude'
+
     # Constrain latitude to (-90 + epsilon, 90 - epsilon)
-    helper['decimallatitude'] = np.clip(data['decimallatitude'].astype(float),
+    helper[lat_col] = np.clip(data[lat_col].astype(float),
                                         -90.0 + epsilon, 90.0 - epsilon)
 
     # Constrain longitude to (-180 + epsilon, 180 - epsilon)
-    helper['decimallongitude'] = np.clip(data['decimallongitude'].astype(float),
+    helper[lon_col] = np.clip(data[lon_col].astype(float),
                                          -180.0 + epsilon, 180.0 - epsilon)
 
-    helper['kg_zone'] = kgcpy.vectorized_lookupCZ(helper['decimallatitude'],
-                                                  helper['decimallongitude'])
+    helper['kg_zone'] = kgcpy.vectorized_lookupCZ(helper[lat_col],
+                                                  helper[lon_col])
 
     # This is needed to make the insertion process smother and faster
     helper['kg_zone'] = helper['kg_zone'].astype(str).str.lower()
@@ -291,10 +297,16 @@ def process_chunk(chunk: pd.DataFrame) -> Tuple[Dict[int, Dict[str, int]], Dict[
     taxon_data = defaultdict(_pickable_defaultdict_creator)
     country_codes = defaultdict(set)
 
+    key_col = 'speciesKey'
+    country_col = 'countryCode'
+    if const.USE_GBIF_SQL:
+        key_col = 'acceptedtaxonkey'
+        country_col = 'countrycode'
+
     for _, row in chunk.iterrows():
-        taxon_id = row['acceptedtaxonkey']
+        taxon_id = row[key_col]
         kg_zone = row['kg_zone']
-        country_code = row['countrycode']
+        country_code = row[country_col]
 
         taxon_data[taxon_id][kg_zone] += 1
         country_codes[taxon_id].add(country_code)
@@ -344,11 +356,15 @@ def _extract_information_2(tsv_file: str, db_handle: sqlite3.Connection,
 
     logger.info("Starting to process location data from TSV file with chunk_size of %s", chunk_size)
 
+    usecols = ["speciesKey", "decimalLatitude",
+                "decimalLongitude", "countryCode"]
+
+    if const.USE_GBIF_SQL:
+        usecols = ["acceptedtaxonkey", "decimallatitude",
+                   "decimallongitude", "countrycode"]
+
     with pd.read_csv(tsv_file, sep='\t',
-                     usecols=[
-                                "acceptedtaxonkey", "decimallatitude",
-                                "decimallongitude", "countrycode"
-                             ],
+                     usecols=usecols,
                      encoding='utf-8',
                      quoting=csv.QUOTE_NONE,
                      on_bad_lines='warn',

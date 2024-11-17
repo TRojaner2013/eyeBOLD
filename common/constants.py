@@ -3,7 +3,7 @@
 import os
 
 # MAIN SETTING
-USE_GBIF_SQL = True # Use GBIF SQL Downloads
+USE_GBIF_SQL = False # Use GBIF SQL Downloads
 USE_GPU = False # Use GPU for speedup
 
 # BUILD RELATED
