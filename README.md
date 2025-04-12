@@ -14,14 +14,14 @@ In order to work with eyeBOLD you will need the following things:
 - BOLD Account
 - GBIF Account
 - Good and stable internet connection
-- Diskspace (We recommand at least 200 GB, min. should be aroung roughly 120 GB)
+- Diskspace (We recommend at least 200 GB, min. should be around roughly 120 GB)
 - A good book or other stuff to do while running the curation process. (Takes several days)
 
-When we provide some time estimations, these are taken from a machine with 32 GB Ram and a Intel Xeon W-10885M CPU with high-speed fiber internet.
+When we provide some time estimations, these are taken from a machine with 32 GB Ram and an Intel Xeon W-10885M CPU with high-speed fiber internet.
 
 **Edit constants in common.constant**.
 You will need to edit some constants in order to increase performance (e.g. Number of physical cores).
-You can edit some of the build settings that provide trade-offs between speed/memory/diskspace in common.constants as well.
+You can edit some of the build settings that provide trade-offs between speed/memory/diskspace in common.constants.py as well.
 If your GBIF account is not accepted to the SQL beta, you need to set the respective flag to false.
 Feel free to take a look at the settings and experiment a bit with what works best for you.
 # Setup
@@ -43,9 +43,9 @@ pip install -e my_pygbif
 
 Install local kgcpy package using
 ```
-pip install my_kgcpy
+pip install -e my_kgcpy
 ```
-Note: This insalls two packages which differ from their original packages: kgcpy, pygbif.
+Note: This installs two packages which differ from their original packages: kgcpy, pygbif.
       It is mandatory to install the adapted kgcpy version.
       The adapted pygbif version introduces https and skips e-mail notifications. If it is not installed GBIF_EMAIL must be set as environmental variable.
 
@@ -83,16 +83,16 @@ With the Rust compiler installed, we can build RaxTax.
 We provide a [script](/setup_tools/build_raxtax.py) to do this. The executable is automatically copied to the dictionary where it's needed.
 
 ```
-python -m setup_toos.build_raxtax
+python -m setup_tools.build_raxtax
 ```
 
-Note: This process is only tested on Windows. **Known Bug: As RaxTax changed, the checksums for the testfiles are different. The script will say that the process failed.**
+Note: This process is only tested on Windows. **Known Bug: As RaxTax changed, the checksums for the test files are different. The script will say that the process failed.**
 
 ## Building the Database
 As things are set up, we are ready to build the enhanced BOLD-Database.
 
 Run the following command with your own arguments to build the database from scratch.
-**Warining: The process takes multiple days for the complete BOLD-Database.**
+**Warning: The process takes multiple days for the complete BOLD-Database.**
 This example creates the database my_db.db with all COI-5P sequences, my_loc_db.db containing location information.
 The downloaded files from above serve as input.
 
@@ -111,11 +111,11 @@ python main.py my_db.db my_loc_db.db COI-5P build-location-db -s 1500
 
 The -s flag indicates for how many species location data are downloaded in parallel.
 Note, that there is a hard coded maximum at GBIFs side.
-In order to save disk space, we strongly recommand to keep this at max. 1500 depending on you disk size.
+In order to save disk space, we strongly recommend to keep this at max. 1500 depending on you disk size.
 The smaller the value, the smaller the download will be.
-Keep in mind that we need to downloas a lot of data.
+Keep in mind that we need to download a lot of data.
 Being limited by GBIFs response time, this process most likely takes over 4d to complete.
-**We strongly encurage you to use the database provided by us in a future release**
+**We strongly encourage you to use the database provided by us in a future release**
 
 # Usage
 
@@ -125,8 +125,8 @@ However, before we talk about the export, let us take a glance at the _update_ a
 
 ## Review
 
-Sometimes we can ran into problems with name lookups in GBIF.
-When eyeBOLD fails to lookup a name multiple times, an error is shown during the build process.
+Sometimes we can run into problems with name lookups in GBIF.
+When eyeBOLD fails to look up a name multiple times, an error is shown during the build process.
 
 To solve the problem simply run:
 
@@ -134,7 +134,7 @@ To solve the problem simply run:
 python main.py my_db.db my_loc_db.db COI-5P review
 ```
 
-Repeat the command untill no more errors are displayed.
+Repeat the command until no more errors are displayed.
 
 ## Update Procedure
 
@@ -145,7 +145,7 @@ python main.py my_db.db my_loc_db.db COI-5P update NEW_BOLD_PUBLIC.*.tsv NEW_BOL
 
 ```
 
-This process will also take some time to finish. Afterwards, we need to run the _build-loc-db_ command again.
+This process will also take some time to finish. Afterward, we need to run the _build-loc-db_ command again.
 
 
 ## Export all Selected Entries
@@ -160,10 +160,10 @@ Valid output formats are TSV, CSV, RAXTAX and FASTA.
 
 ## Exporting own Datasets
 
-When you want to create you own dataset to export, you will need to create costum SQL-queries.
+When you want to create you own dataset to export, you will need to create custom SQL-queries.
 These can then be evaluated using the query command.
 In our example we will ask for all entries where the gbif_key equals 1546413 -- this queries for all specimen identified only to genus level where the genus is _Megaselia Rondani_.
-The gbif_key can be found at the end of a GBIF URL e.g for our [example](https://www.gbif.org/species/1546413).
+The gbif_key can be found at the end of a GBIF URL e.g. for our [example](https://www.gbif.org/species/1546413).
 
 Given the gbif_key, we can then simply create an SQL query:
 ```
@@ -180,12 +180,12 @@ python main.py my_db.db my_loc_db.db COI-5P query "Select * from specimen where 
 Note that we here selected the format (-f) and output (-o) option in order to store the result on disk.
 If you want to store the result, you must provide both options.
 If neither are provided, results are printed on screen.
-Currently this command only supports TSV and CSV outputs.
+Currently, this command only supports TSV and CSV outputs.
 
 
 ## Database Layout
 
-You might wonder, what kind of querys you can perfom.
+You might wonder what kind of queries you can perform.
 Feel free to use the following tables as reference.
 
 The table *processing_input* includes all data from BOLD as provided.
@@ -194,48 +194,48 @@ Thus, we will not provide a detailed description here.
 
 The table *specimen* includes all curated data.
 
-| Column Name | Datatype | Description |
-| ----------- | -------- | ----------- |
-| specimenid | INTEGER | Primary Key, Specimenid from BOLD |
-| nuc_raw | TEXT | Raw sequence from BOLD |
-| nuc_san | TEXT | Curated sequence data |
-| geo_info | FLOAT | Location score |
-| hash | VARCHAR(64) | Hash value for record |
-| last_updated | DATE | Last update of record |
-| review | BOOLEAN | Record must be reviewed |
-| processing_info | JSON | GBIF output |
-| include | BOOLEAN | Record selected/passed all checks |
-| gbif_key | INTEGER | Accepted taxon key in GBIF |
-| taxon_rank | VARCHAR(255) | Identification rank in BOLD |
-| taxon_kingdom | VARCHAR(255) | Taxon Kingdom |
-| taxon_kingdom | VARCHAR(255) | Taxon Phylum |
-| taxon_kingdom | VARCHAR(255) | Taxon Class |
-| taxon_kingdom | VARCHAR(255) | Taxon Order |
-| taxon_kingdom | VARCHAR(255) | Taxon Family |
-| taxon_kingdom | VARCHAR(255) | Taxon Subfamily |
-| taxon_kingdom | VARCHAR(255) | Taxon Tribe |
-| taxon_kingdom | VARCHAR(255) | Taxon Genus |
-| taxon_kingdom | VARCHAR(255) | Taxon Species |
-| taxon_kingdom | VARCHAR(255) | Taxon Subspecies |
-| identification_rank | VARCHAR(255) | GBIF verified rank |
-| checks | INTEGER | Bitvector with checks |
-| contry_iso  | VARCHAR(3) | ISO Code where specimen was found |
-| kg_zone | VARCHAR(5) | KG-climate zone where specimen was found |
+| Column Name         | Datatype     | Description                              |
+|---------------------|--------------|------------------------------------------|
+| specimenid          | INTEGER      | Primary Key, Specimenid from BOLD        |
+| nuc_raw             | TEXT         | Raw sequence from BOLD                   |
+| nuc_san             | TEXT         | Curated sequence data                    |
+| geo_info            | FLOAT        | Location score                           |
+| hash                | VARCHAR(64)  | Hash value for record                    |
+| last_updated        | DATE         | Last update of record                    |
+| review              | BOOLEAN      | Record must be reviewed                  |
+| processing_info     | JSON         | GBIF output                              |
+| include             | BOOLEAN      | Record selected/passed all checks        |
+| gbif_key            | INTEGER      | Accepted taxon key in GBIF               |
+| taxon_rank          | VARCHAR(255) | Identification rank in BOLD              |
+| taxon_kingdom       | VARCHAR(255) | Taxon Kingdom                            |
+| taxon_kingdom       | VARCHAR(255) | Taxon Phylum                             |
+| taxon_kingdom       | VARCHAR(255) | Taxon Class                              |
+| taxon_kingdom       | VARCHAR(255) | Taxon Order                              |
+| taxon_kingdom       | VARCHAR(255) | Taxon Family                             |
+| taxon_kingdom       | VARCHAR(255) | Taxon Subfamily                          |
+| taxon_kingdom       | VARCHAR(255) | Taxon Tribe                              |
+| taxon_kingdom       | VARCHAR(255) | Taxon Genus                              |
+| taxon_kingdom       | VARCHAR(255) | Taxon Species                            |
+| taxon_kingdom       | VARCHAR(255) | Taxon Subspecies                         |
+| identification_rank | VARCHAR(255) | GBIF verified rank                       |
+| checks              | INTEGER      | Bitvector with checks                    |
+| country_iso         | VARCHAR(3)   | ISO Code where specimen was found        |
+| kg_zone             | VARCHAR(5)   | KG-climate zone where specimen was found |
 
 Given this table you can create queries.
 Note that gbif_key is indexed and thus provides faster results.
 
-All entires must have a specimenid as well as a nuc_raw.
+All entries must have a specimenid as well as a nuc_raw.
 Other columns can be empty. 
-Contry_iso and kg_zone are only available, when the original record included a contry and coordinates.
-The taxa names are from BOLD and curated, untill the rank indicated in checks.
+Country_iso and kg_zone are only available, when the original record included a country and coordinates.
+The taxa names are from BOLD and curated, until the rank indicated in checks.
 
-Checks is a bitvector with the follwoing bits:
+Checks is a bitvector with the following bits:
 | Bit | Description |
 | --- | ----------- |
 | 0 | Selected for further processing |
-| 1 | Name checked against GIBF |
-| 2 | Sequence is a dupliate or subsequence |
+| 1 | Name checked against GBIF |
+| 2 | Sequence is a duplicate or subsequence |
 | 3 | Sequence failed length check |
 | 4 | Hybrid according to regex check |
 | 5 | Verified kingdom with GBIF |
