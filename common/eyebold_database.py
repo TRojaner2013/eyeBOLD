@@ -98,7 +98,7 @@ class EyeBoldDatabase():
         self._db_handle = None
 
     def review(self) -> None:
-        """ Automated review processs
+        """ Automated review process
 
             Note: This process is mandatory as we might fail to check all
             names on first try due to e.g. timeout errors.
@@ -234,7 +234,7 @@ class EyeBoldDatabase():
         #ToDo: add update flag to check only new entries...
         disclose_hybrids(self._db_handle)
 
-        # Set include flag in bitvector for entries that passed all checks untill now
+        # Set include flag in bitvector for entries that passed all checks until now
         read_mask, golden_mask = BitIndex.get_golden()
         command = f"""UPDATE specimen
                       SET checks = checks | {1 << BitIndex.SELECTED.value}
@@ -278,7 +278,7 @@ class EyeBoldDatabase():
             create_db_file(self._db_file)
             self._db_handle = open_db_file(self._db_file)
         except FileExistsError:
-            logger.error("Unable to create databse file at %s.", self._db_file)
+            logger.error("Unable to create database file at %s.", self._db_file)
             return False, f"Database {self._db_file} already exists."
         except FileNotFoundError:
             logger.error("Unable to find database %s.", self._db_file)
@@ -295,9 +295,9 @@ class EyeBoldDatabase():
                 logger.info("Finished database creation process at %s",
                             datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
 
-                return True, "Succesfully created database!"
-        except ValueError:
-            logger.error("Unable to open %s  or %s.", datapackage, tsv_file)
+                return True, "Successfully created database!"
+        except ValueError as err:
+            logger.error("Unable to open %s  or %s. This is the direct result of the following error:\n%s", datapackage, tsv_file, err)
             return False, f"Unable to open {datapackage} or {tsv_file}."
         except sqlite3.Error as err:
             logger.critical("Unexpected database error: %s", err)
@@ -324,9 +324,9 @@ class EyeBoldDatabase():
         """ Invokes raxtax
 
             Returns:
-                List of specimeni ids that are misclassified.
+                List of specimen ids that are misclassified.
         """
-        #ToDo: Perfom only one export for first build, as files are identical.
+        #ToDo: Perform only one export for first build, as files are identical.
         logger.info("Starting raxtax process...")
         self._export_raxtax_db_file(const.RAXTAX_DB_IN)
         self._export_raxtax_query_file(const.RAXTAX_QUERY_IN)
@@ -373,7 +373,7 @@ class EyeBoldDatabase():
                     datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
 
         # ToDo Q1: Make this part a function
-        # Get all unique gbif_keys, each representing one distict taxon
+        # Get all unique gbif_keys, each representing one distinct taxon
         cursor = self._db_handle.cursor()
         cmd = """SELECT DISTINCT gbif_key FROM specimen;"""
         cursor.execute(cmd)
@@ -382,7 +382,7 @@ class EyeBoldDatabase():
         if not gbif_keys:
             # Sanity check, if we end up here something went wrong...
             logger.error("No gbif_keys found in database.")
-            logger.error("Please check input data or conatct developer.")
+            logger.error("Please check input data or contact developer.")
             return
 
        # 2. Get list of duplicates
@@ -517,7 +517,7 @@ class EyeBoldDatabase():
                 - level (str): Taxonomy level
 
             Returns:
-                List of dictionary with taxonomy data of all unsantized rows at
+                List of dictionary with taxonomy data of all unsanatized rows at
                 the specified level
 
             Raises:
@@ -581,7 +581,7 @@ class EyeBoldDatabase():
             - db_handle: Database connection handle
 
         Returns:
-            Dictionary with taxonomy data of all unsantized rows
+            Dictionary with taxonomy data of all unsanatized rows
         """
 
         query = (f"SELECT {DB_MAP['kingdom']}, {DB_MAP['phylum']},"
@@ -658,11 +658,11 @@ class EyeBoldDatabase():
         self._export_fasta_raxtax(rows, out_file)
 
     def export(self, format_: ExportFormats, out_file: str) -> None:
-        """ Exports selected data from databse into a file of provided format
+        """ Exports selected data from database into a file of provided format
 
             Args:
                 format_ (ExportFormat): Format of exported file
-                out-file (str): Path where export is saved
+                out_file (str): Path where export is saved
         """
 
         cursor = self._db_handle.cursor()
@@ -693,9 +693,9 @@ class EyeBoldDatabase():
         """ Executes a query and exports the data to out_file in the specified format
 
             Args:
-                - queryy (str): SQL Query
+                - query (str): SQL Query
                 - out_file (str): Path to exported file
-                - format_ (ExportFormats): Fortmat of export
+                - format_ (ExportFormats): Format of export
 
             Raises:
                 ValueError: If an invalid export format is provided
@@ -757,7 +757,7 @@ class EyeBoldDatabase():
                 #     tax_parts.append(f"s:{species}")
 
                 # ToDo: Edit raxtax export query.
-                # ToDo: Remove character restriction once raxtax is fixedl.
+                # ToDo: Remove character restriction once raxtax is fixed.
                 valid_chars = {'A', 'G', 'C', 'T'}
                 if checks & (1 << BitIndex.INCL_PHYLUM.value):
                     tax_parts.append(f"{phylum.replace(' ', '_')}")
