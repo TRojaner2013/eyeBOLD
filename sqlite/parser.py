@@ -21,10 +21,10 @@ import kgcpy # type: ignore
 
 logger = logging.getLogger(__name__)
 
-# This is an inital map for BOLDs tsv files to coloum names in our
+# This is an initial map for BOLDs tsv files to column names in our
 # SQL-Databases
 @dataclass
-class ColumnInfo():
+class ColumnInfo:
     """ Dataclass modeling a database column introduced by BOLD """
     index: int # Index of the column in the tsv file
     col_name: str # Name of the column
@@ -164,6 +164,10 @@ DB_MAP = {
     'sequence_run_site': 'sequence_run_site',
     'sequence_upload_date': 'sequence_upload_date',
     'bold_recordset_code_arr': 'bold_recordset_code_arr',
+    'sovereign_inst': 'sovereign_inst',
+    'realm': 'realm',
+    'biome': 'biome',
+    'ecoregion':'ecoregion',
 }
 
 # Defines all columns used as primary key
@@ -461,8 +465,8 @@ class TsvParser():
             Dict[str, str]: The next row as a dictionary if the marker matches.
         """
 
-        # This are the columns we need to just copy to the new table
-        # If you need to add more collums, add them here.
+        # These are the columns we need to just copy to the new table
+        # If you need to add more columns, add them here.
         column_names = [
             "taxon_rank",
             "taxon_kingdom",
@@ -500,7 +504,7 @@ class TsvParser():
                 # Manually add hash and update indication.
                 hash_in = [str(value) for value in transformed_row.values()]
 
-                # Fill information for Table specimin
+                # Fill information for Table specimen
                 specimen_rows = {column: transformed_row[column] for column in
                                  column_names if column in transformed_row}
 
@@ -509,7 +513,7 @@ class TsvParser():
                 specimen_rows['last_updated'] = datetime.today().strftime('%Y-%m-%d')
                 specimen_rows['include'] = False
 
-                # Process coordinate and insert klimate zone if any coordinates
+                # Process coordinate and insert climate zone if any coordinates
                 # are available.
                 coords = transformed_row.get('coord', None)
                 specimen_rows['kg_zone'] = None
@@ -621,8 +625,8 @@ class TsvUpdateParser():
             Tuple containing the specimenid, hash and the row for insertion as a dictionary
         """
 
-        # This are the columns we need to just copy to the new table
-        # If you need to add more collums, add them here.
+        # These are the columns we need to just copy to the new table
+        # If you need to add more columns, add them here.
         column_names = [
             "taxon_rank",
             "taxon_kingdom",
@@ -659,7 +663,7 @@ class TsvUpdateParser():
                 # Manually add hash and update indication.
                 hash_in = [str(value) for value in transformed_row.values()]
 
-                # Fill information for Table specimin
+                # Fill information for Table specimen
                 specimen_rows = {column: transformed_row[column] for column in
                                  column_names if column in transformed_row}
 
@@ -668,7 +672,7 @@ class TsvUpdateParser():
                 specimen_rows['last_updated'] = datetime.today().strftime('%Y-%m-%d')
                 specimen_rows['include'] = False
 
-                # Process coordinate and insert klimate zone if any coordinates
+                # Process coordinate and insert climate zone if any coordinates
                 # are available.
                 coords = transformed_row.get('coord', None)
                 specimen_rows['kg_zone'] = None
